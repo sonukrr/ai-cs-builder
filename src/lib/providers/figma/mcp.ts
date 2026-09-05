@@ -7,7 +7,7 @@ import type {
   DesignNode,
   FigmaProvider,
 } from "./types";
-import { collectStyles } from "./rest";
+import { collectStyles, persistDesignImage, storeDesignImage } from "./rest";
 
 /**
  * Figma Dev Mode MCP backend.
@@ -35,6 +35,9 @@ const TOOL_INTENTS = {
   variables: ["get_variable_defs", "variable", "get_design_tokens", "tokens"],
   image: ["get_screenshot", "get_image", "screenshot", "image"],
 } as const;
+
+/** Dev Mode re-renders per call; past this an import stops feeling live. */
+const MAX_SCREENSHOTS = 6;
 
 export class FigmaMcpProvider implements FigmaProvider {
   readonly backend = "mcp" as const;
@@ -70,7 +73,7 @@ export class FigmaMcpProvider implements FigmaProvider {
     }
   }
 
-  async fetchDesign(fileKey: string, nodeId?: string): Promise<DesignDocument> {
+  async fetchDesign(fileKey: string, nodeId?: string, projectId?: string): Promise<DesignDocument> {
     const warnings: string[] = [];
     const client = await this.connect();
 
@@ -135,6 +138,10 @@ export class FigmaMcpProvider implements FigmaProvider {
         }
       }
 
+      // The screenshot is the design half of the fidelity review's evidence —
+      // without it a reviewer is comparing the built page against nothing.
+      const images = await this.captureFrames(client, pick("image"), frames, projectId, args, warnings);
+
       return {
         fileKey,
         fileName: frames[0]?.name ?? "Figma design",
@@ -142,13 +149,139 @@ export class FigmaMcpProvider implements FigmaProvider {
         backend: this.backend,
         frames,
         styles,
-        images: {},
+        images,
         warnings,
       };
     } finally {
       await client.close().catch(() => {});
     }
   }
+
+  /**
+   * Screenshots the imported frames, if this server will do it.
+   *
+   * Same defensive contract as everything else here: the tool is discovered by
+   * intent because Figma keeps renaming it, and every way this can fail — no
+   * such tool, a server that answers with prose, a node it cannot resolve —
+   * degrades to a warning. An import that produced a good structure must never
+   * fall over because a picture did not arrive.
+   *
+   * The result may be inline base64, a resource blob or just a URL depending on
+   * the release, so all three are handled and the bytes land in the asset store
+   * either way — nothing the MCP server hands back survives this process.
+   */
+  private async captureFrames(
+    client: Client,
+    tool: string | undefined,
+    frames: DesignFrame[],
+    projectId: string | undefined,
+    baseArgs: Record<string, unknown>,
+    warnings: string[],
+  ): Promise<Record<string, string>> {
+    if (frames.length === 0) return {};
+    if (!tool) {
+      warnings.push(
+        "This Figma MCP server exposes no screenshot tool, so the design review will have no reference image.",
+      );
+      return {};
+    }
+    if (!projectId) {
+      warnings.push(
+        "Frame screenshots were skipped: this import had no project to store them against.",
+      );
+      return {};
+    }
+
+    // The Dev Mode server re-renders on every call, so a wide file would turn
+    // an import into a minutes-long stall. The review only ever looks at the
+    // frame that was built; the rest are a bonus.
+    const targets = frames.slice(0, MAX_SCREENSHOTS);
+    if (frames.length > targets.length) {
+      warnings.push(
+        `Only the first ${MAX_SCREENSHOTS} frames were screenshotted; the rest were skipped to keep the import responsive.`,
+      );
+    }
+
+    const images: Record<string, string> = {};
+    for (const frame of targets) {
+      const alt = `Figma frame “${frame.name}”`;
+      try {
+        const result = await client.callTool({
+          name: tool,
+          arguments: { ...baseArgs, nodeId: frame.id, node_id: frame.id },
+        });
+
+        const inline = imageBlocksOf(result);
+        if (inline.length > 0) {
+          const url = await storeDesignImage(projectId, inline[0].data, inline[0].mimeType, alt, warnings);
+          if (url) images[frame.id] = url;
+          continue;
+        }
+
+        // Some builds answer with a link or a data: URI in the text block.
+        const link = imageLinkIn(textOf(result));
+        if (!link) {
+          warnings.push(`${tool} returned no image for ${alt}.`);
+          continue;
+        }
+        const url = link.startsWith("data:")
+          ? await storeDesignImage(projectId, decodeDataUri(link), mimeOfDataUri(link), alt, warnings)
+          : await persistDesignImage(projectId, link, alt, warnings);
+        if (url) images[frame.id] = url;
+      } catch (error) {
+        warnings.push(
+          `Screenshot of ${alt} failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    return images;
+  }
+}
+
+/**
+ * Pulls the binary blocks out of a tool result.
+ *
+ * The spec's `image` block carries base64 in `data`; a `resource` block carries
+ * it in `resource.blob`. Figma has used both, so neither is assumed.
+ */
+function imageBlocksOf(result: unknown): { data: Uint8Array; mimeType: string }[] {
+  const content = (result as { content?: Record<string, any>[] })?.content ?? [];
+  const found: { data: Uint8Array; mimeType: string }[] = [];
+
+  for (const block of content) {
+    const base64 =
+      block?.type === "image" && typeof block.data === "string"
+        ? block.data
+        : typeof block?.resource?.blob === "string"
+          ? block.resource.blob
+          : null;
+    if (!base64) continue;
+
+    const mimeType = String(block.mimeType ?? block.resource?.mimeType ?? "image/png");
+    if (!mimeType.startsWith("image/")) continue;
+    try {
+      found.push({ data: new Uint8Array(Buffer.from(base64, "base64")), mimeType });
+    } catch {
+      // A block we cannot decode is not worth failing an import over.
+    }
+  }
+  return found;
+}
+
+/** First data: URI or image URL in a text answer. */
+function imageLinkIn(text: string): string | null {
+  const dataUri = text.match(/data:image\/[a-z+]+;base64,[A-Za-z0-9+/=]+/);
+  if (dataUri) return dataUri[0];
+  const link = text.match(/https?:\/\/\S+?\.(?:png|jpe?g|webp)(?=[)\s"']|$)/i);
+  return link ? link[0] : null;
+}
+
+function decodeDataUri(uri: string): Uint8Array {
+  return new Uint8Array(Buffer.from(uri.slice(uri.indexOf(",") + 1), "base64"));
+}
+
+function mimeOfDataUri(uri: string): string {
+  return uri.slice(5, uri.indexOf(";"));
 }
 
 /** MCP tool results are content blocks; we want the concatenated text. */

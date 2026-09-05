@@ -1,5 +1,6 @@
 import { store } from "@/lib/store/store";
 import { getFigmaProvider, parseFigmaUrl } from "@/lib/providers/figma";
+import { summarizeDesign } from "@/lib/providers/figma/summarize";
 import { analyzeDesign } from "@/lib/agent/analyze";
 import { describeApiError } from "@/lib/agent/client";
 
@@ -35,7 +36,14 @@ export async function POST(
   }
 
   try {
-    const design = await provider.fetchDesign(parsed?.fileKey ?? "", body.nodeId ?? parsed?.nodeId);
+    // Passing the project id is what makes the rendered frame PNGs persist:
+    // the backends put them through the asset store instead of leaving
+    // Figma's signed URLs, which expire long before anyone reviews them.
+    const design = await provider.fetchDesign(
+      parsed?.fileKey ?? "",
+      body.nodeId ?? parsed?.nodeId,
+      projectId,
+    );
     const { plan, dropped } = await analyzeDesign(design);
 
     await store.savePlan(projectId, plan, {
@@ -44,7 +52,18 @@ export async function POST(
       frameCount: design.frames.length,
       dropped,
       warnings: design.warnings,
+      // The fidelity review compares the built site back against the design,
+      // so the design has to survive past this request. Band heights and the
+      // rendered frame images live only on the DesignDocument, which is not
+      // persisted anywhere else — without them the review can still check
+      // coverage and tokens, but it has no reference image to show.
+      designSummary: summarizeDesign(design),
+      designStyles: design.styles,
+      designImages: design.images,
     });
+    // The summary above deliberately has no geometry, so it cannot drive a
+    // replica. describe_design_node reads the document itself for that.
+    await store.saveDesign(projectId, design);
     await store.updateProject(projectId, {
       entryPoint: "figma",
       sourceRef: parsed?.fileKey ?? design.fileKey,

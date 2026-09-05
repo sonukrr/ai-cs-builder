@@ -31,6 +31,62 @@ function attr(name: string, value: unknown): string | null {
   return `${name}="${String(value).replace(/"/g, "&quot;")}"`;
 }
 
+/* -------------------------------------------------------------- custom html */
+
+/**
+ * Neutralises Angular's template syntax in text the emitter did not author.
+ *
+ * A replica's markup is design copy, and design copy contains braces —
+ * "{{name}}" in a placeholder, "}" closing a code sample, a stray "{" in a
+ * heading. The template compiler reads `{{ … }}` as an interpolation of a
+ * component property that does not exist, so the build fails; when it happens
+ * to parse, the visitor sees an empty string where the copy should be. Braces
+ * also open Angular's control-flow blocks (`@if (…) {`), so escaping them
+ * closes that door too.
+ *
+ * HTML entities are the escape that works: the template lexer decodes them
+ * after it has finished looking for interpolation markers, so `&#123;&#123;`
+ * survives to the DOM as a literal `{{`, in text and in attribute values alike.
+ */
+function escapeAngularBraces(markup: string): string {
+  return markup.replace(/\{/g, "&#123;").replace(/\}/g, "&#125;");
+}
+
+/** For text the emitter writes into markup itself — credits, labels. */
+function escapeHtmlText(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+interface Credit {
+  text: string;
+  url: string;
+}
+
+function creditsOf(content: Record<string, unknown>): Credit[] {
+  const raw = content.credits;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry) => (entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {}))
+    .map((entry) => ({
+      text: typeof entry.text === "string" ? entry.text.trim() : "",
+      url: typeof entry.url === "string" ? entry.url : "",
+    }))
+    .filter((credit) => credit.text !== "");
+}
+
+function customCss(section: Section): string {
+  const css = (section.content as Record<string, unknown>).css;
+  return typeof css === "string" ? css.trim() : "";
+}
+
+function isCustomHtml(section: Section): boolean {
+  return section.type === "custom-html";
+}
+
 /* ------------------------------------------------------------------ layout */
 
 const DIRECTIONS = ["row", "column", "grid"] as const;
@@ -218,6 +274,62 @@ function emitStaticSection(section: Section, depth: number, placement: string[])
     .join("\n");
 }
 
+/**
+ * A replica band, written into the page template as markup.
+ *
+ * Unlike every other static section this is not handed to `app-section` as
+ * data: the markup is fixed at build time, so binding it through [innerHTML]
+ * would mean shipping a runtime sanitizer pass and an Angular DomSanitizer
+ * bypass to reproduce a string that could simply have been in the template.
+ * Emitting it flat also means the built site's own tooling can see it.
+ *
+ * The markup is written verbatim apart from the brace escaping — re-indenting
+ * it would insert whitespace between inline elements and change how the replica
+ * actually reads.
+ */
+function emitCustomHtmlSection(section: Section, depth: number, placement: string[]): string {
+  const pad = INDENT.repeat(depth);
+  const content = section.content as Record<string, unknown>;
+  const markup = typeof content.html === "string" ? content.html : "";
+  const note = typeof content.note === "string" ? content.note.trim() : "";
+  const credits = creditsOf(content);
+
+  // Both stock licences require attribution while the image is on screen, so it
+  // is emitted as part of the band rather than left to whoever ships the site.
+  const attribution =
+    credits.length > 0
+      ? [
+          `${pad}${INDENT}<small class="custom-html-credit">`,
+          ...credits.map((credit) => {
+            const label = escapeAngularBraces(escapeHtmlText(credit.text));
+            const href = escapeAngularBraces(escapeHtmlText(credit.url));
+            return href
+              ? `${pad}${INDENT}${INDENT}<a href="${href}" target="_blank" rel="noopener">${label}</a>`
+              : `${pad}${INDENT}${INDENT}<span>${label}</span>`;
+          }),
+          `${pad}${INDENT}</small>`,
+        ].join("\n")
+      : null;
+
+  const openTag = [
+    `<section class="custom-html"`,
+    `data-section-id="${section.id}"`,
+    placement.length > 0 ? attr("style", placement.join("; ")) : null,
+  ]
+    .filter((part): part is string => part !== null)
+    .join(" ") + ">";
+
+  return [
+    `${pad}<!-- ${section.label}${note ? ` — ${note.replace(/--+/g, "-")}` : ""} -->`,
+    `${pad}${openTag}`,
+    escapeAngularBraces(markup),
+    attribution,
+    `${pad}</section>`,
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
+}
+
 function emitLayoutSection(section: Section, page: Page, depth: number, placement: string[]): string {
   const pad = INDENT.repeat(depth);
   const props = layoutPropsOf(section);
@@ -239,8 +351,9 @@ function emitLayoutSection(section: Section, page: Page, depth: number, placemen
 
 function emitSection(section: Section, page: Page, depth: number, placement: string[]): string {
   if (isLayoutSection(section)) return emitLayoutSection(section, page, depth, placement);
-  return section.source === "zm-careers-lib"
-    ? emitFunctionalSection(section, depth, placement)
+  if (section.source === "zm-careers-lib") return emitFunctionalSection(section, depth, placement);
+  return isCustomHtml(section)
+    ? emitCustomHtmlSection(section, depth, placement)
     : emitStaticSection(section, depth, placement);
 }
 
@@ -304,6 +417,32 @@ function emitLayoutRules(blueprint: Blueprint): string {
   return blocks.join("\n\n");
 }
 
+/**
+ * The replicas' stylesheets, collected into the one generated stylesheet.
+ *
+ * Same reasoning as the layout rules above: a replica's CSS carries @media
+ * queries and pseudo-elements that no inline style attribute can express, and
+ * the consuming app should still have exactly one generated stylesheet to wire
+ * into its build. Every selector was rewritten to sit under
+ * `[data-section-id="<id>"]` when the section was saved, which is what makes it
+ * safe to concatenate these into a global file — a replica cannot reach the
+ * library components around it.
+ */
+function emitCustomHtmlRules(blueprint: Blueprint): string {
+  const blocks: string[] = [];
+
+  for (const page of blueprint.pages) {
+    walkSections(page.sections, (section) => {
+      if (isLayoutSection(section) || !isCustomHtml(section)) return;
+      const css = customCss(section);
+      if (!css) return;
+      blocks.push(`/* ${section.label || section.id} (${page.id}) */\n${css}`);
+    });
+  }
+
+  return blocks.join("\n\n");
+}
+
 /** CSS custom properties, so the theme is one file rather than scattered styles. */
 function emitTheme(blueprint: Blueprint): string {
   const t = blueprint.company.brand.tokens;
@@ -323,10 +462,15 @@ function emitTheme(blueprint: Blueprint): string {
   ].filter(Boolean);
 
   const layoutRules = emitLayoutRules(blueprint);
+  const replicaRules = emitCustomHtmlRules(blueprint);
   return [
     `/* Generated from the Site Blueprint. */`,
     `:root {\n${lines.map((l) => `${INDENT}${l}`).join("\n")}\n}`,
     layoutRules ? `/* Responsive collapse for layout containers. */\n${layoutRules}` : null,
+    // Last, so a replica's own rules win over the generic ones at equal
+    // specificity — its selectors already carry the section-id attribute, but
+    // ordering is what settles a tie against anything appended above.
+    replicaRules ? `/* Custom HTML replicas — scoped to their section id. */\n${replicaRules}` : null,
   ]
     .filter(Boolean)
     .join("\n\n") + "\n";

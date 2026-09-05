@@ -8,6 +8,7 @@ import type {
   PublishRequest,
 } from "@/lib/blueprint/schema";
 import type { SitePlan } from "@/lib/agent/analyze";
+import type { DesignDocument, DesignNode } from "@/lib/providers/figma/types";
 
 /**
  * File-backed persistence.
@@ -47,6 +48,136 @@ export interface ConversationTurn {
   at: string;
   /** Tool calls made while producing this turn, for the activity timeline. */
   activity?: { tool: string; summary: string }[];
+}
+
+/**
+ * How much of a Figma document is kept on disk.
+ *
+ * The design is persisted so the agent can author an HTML/CSS replica of a band
+ * from the real geometry rather than from a label — see `saveDesign`. A real
+ * Figma file is tens of thousands of nodes, most of which describe nothing you
+ * could see, so writing it whole would put tens of megabytes per project on
+ * disk to no purpose. Everything a replica needs survives the trim; what is
+ * dropped is listed on `trimDesign` below.
+ */
+const DESIGN_MAX_DEPTH = 10;
+const DESIGN_MIN_DEPTH = 3;
+const DESIGN_MAX_CHILDREN = 48;
+const DESIGN_MAX_TEXT = 400;
+const DESIGN_MAX_FILLS = 3;
+/** Nodes kept per document before the depth limit is tightened and retried. */
+const DESIGN_NODE_BUDGET = 6000;
+
+function trimNode(
+  node: DesignNode,
+  depth: number,
+  maxDepth: number,
+  count: { n: number },
+): DesignNode | null {
+  // A node with no area cannot be seen, so it cannot be replicated.
+  if (node.bounds.width < 1 || node.bounds.height < 1) return null;
+
+  const children: DesignNode[] = [];
+  if (depth < maxDepth) {
+    // Past the first few dozen siblings a repeated grid is repeating itself;
+    // the ones kept already establish the pattern the replica has to match.
+    for (const child of (node.children ?? []).slice(0, DESIGN_MAX_CHILDREN)) {
+      const kept = trimNode(child, depth + 1, maxDepth, count);
+      if (kept) children.push(kept);
+    }
+  }
+
+  const text = node.text?.trim().slice(0, DESIGN_MAX_TEXT);
+  const fills = node.fills?.slice(0, DESIGN_MAX_FILLS);
+  const carries =
+    Boolean(text) ||
+    (fills?.length ?? 0) > 0 ||
+    node.imageUrl !== undefined ||
+    node.componentName !== undefined ||
+    (node.cornerRadius ?? 0) > 0;
+
+  // A childless node with no paint, no copy and no image is a spacer, a hit
+  // area or an empty group. Keeping it would cost bytes and teach nothing.
+  if (children.length === 0 && !carries) return null;
+
+  count.n += 1;
+  return {
+    id: node.id,
+    name: node.name,
+    type: node.type,
+    // Sub-pixel coordinates are noise at CSS resolution and roughly double the
+    // size of every number written.
+    bounds: {
+      x: Math.round(node.bounds.x),
+      y: Math.round(node.bounds.y),
+      width: Math.round(node.bounds.width),
+      height: Math.round(node.bounds.height),
+    },
+    ...(text ? { text } : {}),
+    ...(fills && fills.length > 0 ? { fills } : {}),
+    ...(node.fontFamily ? { fontFamily: node.fontFamily } : {}),
+    ...(node.fontSize ? { fontSize: Math.round(node.fontSize) } : {}),
+    ...(node.fontWeight ? { fontWeight: node.fontWeight } : {}),
+    ...(node.cornerRadius ? { cornerRadius: Math.round(node.cornerRadius) } : {}),
+    ...(node.imageUrl ? { imageUrl: node.imageUrl } : {}),
+    ...(node.componentName ? { componentName: node.componentName } : {}),
+    ...(children.length > 0 ? { children } : {}),
+  };
+}
+
+/**
+ * What is dropped, and why:
+ *
+ * - zero-area nodes, and childless nodes with no fill, text, image, radius or
+ *   component name — nothing about them is visible, so nothing about them can
+ *   be replicated;
+ * - siblings past the 48th under one parent, which are a repeated grid
+ *   repeating itself;
+ * - everything below depth 10, tightened further only if the document is still
+ *   over budget, in which case a warning records the depth actually kept;
+ * - fills past the third on one node, and copy past 400 characters;
+ * - sub-pixel coordinate precision.
+ *
+ * Nothing else is touched: `bounds`, `fills`, `fontFamily`, `fontSize`,
+ * `fontWeight`, `cornerRadius`, `text`, `imageUrl` and `componentName` are the
+ * whole vocabulary a replica is authored from, and `styles`/`images` are what
+ * the fidelity review reads.
+ */
+function trimDesign(design: DesignDocument): DesignDocument {
+  let maxDepth = DESIGN_MAX_DEPTH;
+  let frames: DesignDocument["frames"] = [];
+  let count = { n: 0 };
+
+  // Depth is reduced rather than nodes truncated, because cutting a document
+  // off part-way through leaves later bands with nothing at all while the
+  // first band keeps detail nobody asked for.
+  while (true) {
+    count = { n: 0 };
+    frames = design.frames.map((frame) => ({
+      id: frame.id,
+      name: frame.name,
+      bounds: {
+        x: Math.round(frame.bounds.x),
+        y: Math.round(frame.bounds.y),
+        width: Math.round(frame.bounds.width),
+        height: Math.round(frame.bounds.height),
+      },
+      children: frame.children
+        .map((child) => trimNode(child, 1, maxDepth, count))
+        .filter((child): child is DesignNode => child !== null),
+    }));
+    if (count.n <= DESIGN_NODE_BUDGET || maxDepth <= DESIGN_MIN_DEPTH) break;
+    maxDepth -= 1;
+  }
+
+  const warnings = [...design.warnings];
+  if (maxDepth < DESIGN_MAX_DEPTH) {
+    warnings.push(
+      `Design detail was kept to ${maxDepth} levels deep (${count.n} nodes) because the file is very large; a replica of a deeply nested band may be missing its innermost detail.`,
+    );
+  }
+
+  return { ...design, frames, warnings };
 }
 
 export const store = {
@@ -103,6 +234,25 @@ export const store = {
     projectId: string,
   ): Promise<{ plan: SitePlan; meta: Record<string, unknown> } | null> {
     return readJson(path.join(ROOT, projectId, "plan.json"));
+  },
+
+  /**
+   * The imported design itself, kept so a band can be replicated rather than
+   * approximated.
+   *
+   * The plan's meta already carries `summarizeDesign(design)`, which throws
+   * geometry away on purpose — it exists to decide what a band *is*. Deciding
+   * what a band *looks like* needs the opposite: bounds, fills, type and corner
+   * radii. So the document is stored alongside the summary rather than instead
+   * of it, trimmed by `trimDesign` because a real file is far too large to keep
+   * whole.
+   */
+  async saveDesign(projectId: string, design: DesignDocument): Promise<void> {
+    await writeJson(path.join(await projectDir(projectId), "design.json"), trimDesign(design));
+  },
+
+  async getDesign(projectId: string): Promise<DesignDocument | null> {
+    return readJson<DesignDocument>(path.join(ROOT, projectId, "design.json"));
   },
 
   /**

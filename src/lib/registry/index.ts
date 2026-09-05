@@ -179,6 +179,18 @@ export const STATIC_SECTIONS: StaticSectionDef[] = [
     blurb: "Site footer with links, social icons and legal copy.",
     contentKeys: { columns: "[{ title, links: [{ label, href }] }]", legal: "Copyright line." },
   },
+  {
+    id: "custom-html",
+    name: "HTML Replica",
+    blurb:
+      "A faithful HTML/CSS replica of one design band, for presentation the fixed static types cannot express. Markup and scoped CSS only — it is sanitized on save, so it can never search, filter, submit or carry any behaviour. Anything functional comes from the approved catalog instead.",
+    contentKeys: {
+      html: "Replica markup. Allowed tags only; no <style>, no <script>, no form controls. Sanitized when saved.",
+      css: "Plain CSS for this section. Every selector is scoped to the section on save, so it cannot restyle the rest of the page.",
+      credits: "[{ text, url }] — image attribution. Required for stock photography, and rendered.",
+      note: "One line saying which design band this replicates.",
+    },
+  },
 ];
 
 /**

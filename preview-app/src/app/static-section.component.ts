@@ -1,4 +1,14 @@
-import { Component, Input } from "@angular/core";
+import {
+  Component,
+  ElementRef,
+  HostBinding,
+  Input,
+  OnChanges,
+  OnDestroy,
+  Renderer2,
+  SimpleChanges,
+} from "@angular/core";
+import { DomSanitizer, SafeHtml } from "@angular/platform-browser";
 import type { BlueprintSection } from "./blueprint";
 
 /**
@@ -219,6 +229,22 @@ import type { BlueprintSection } from "./blueprint";
         <div class="wrap legal">{{ value('legal', '© ' + year + ' ' + companyName) }}</div>
       </footer>
 
+      <!-- An agent-authored HTML/CSS replica of one design band. The markup is
+           written into the DOM as-is and the scoped stylesheet is injected by
+           the component, because DomSanitizer drops <style> out of
+           [innerHTML] entirely — see applyScopedCss(). -->
+      <ng-container *ngSwitchCase="'custom-html'">
+        <section class="custom-html" [innerHTML]="safeHtml"></section>
+        <small *ngIf="credits.length" class="credit inline credits">
+          <ng-container *ngFor="let c of credits">
+            <!-- A credit with no link is still a credit; an empty href would
+                 reload the preview instead. -->
+            <a *ngIf="c.url; else plainCredit" [href]="c.url" target="_blank" rel="noopener">{{ c.text }}</a>
+            <ng-template #plainCredit><span>{{ c.text }}</span></ng-template>
+          </ng-container>
+        </small>
+      </ng-container>
+
       <!-- rich-text, and anything the studio adds that we do not know yet -->
       <section *ngSwitchDefault class="band narrow">
         <div class="wrap">
@@ -230,7 +256,7 @@ import type { BlueprintSection } from "./blueprint";
   `,
   styleUrls: ["./static-section.component.scss"],
 })
-export class StaticSectionComponent {
+export class StaticSectionComponent implements OnChanges, OnDestroy {
   @Input() section!: BlueprintSection;
   @Input() companyName = "";
   @Input() tagline = "";
@@ -239,6 +265,110 @@ export class StaticSectionComponent {
   @Input() studioOrigin = "";
 
   readonly year = new Date().getFullYear();
+
+  /**
+   * Every selector in a replica's CSS is rewritten to sit under
+   * `[data-section-id="<id>"]` when the section is saved. Without that attribute
+   * on an ancestor of the markup, none of those selectors match anything and the
+   * replica renders as unstyled HTML.
+   */
+  @HostBinding("attr.data-section-id") get sectionId(): string | null {
+    return this.section?.id ?? null;
+  }
+
+  /**
+   * The replica markup, pre-trusted.
+   *
+   * Held as a field rather than produced by a template getter: [innerHTML]
+   * compares by reference, and a fresh SafeHtml on every change-detection pass
+   * would tear down and rebuild the whole subtree each tick.
+   */
+  safeHtml: SafeHtml | null = null;
+
+  private styleEl: HTMLStyleElement | null = null;
+
+  constructor(
+    private readonly sanitizer: DomSanitizer,
+    private readonly host: ElementRef<HTMLElement>,
+    private readonly renderer: Renderer2,
+  ) {}
+
+  /**
+   * Image attribution for a replica. Unsplash and Pexels both require it while
+   * the image is on screen, so it renders whether or not the design had a slot
+   * for it. A field rather than a getter for the same reason as `safeHtml`:
+   * *ngFor over a freshly built array would rebuild the list every tick.
+   */
+  credits: { text: string; url: string }[] = [];
+
+  ngOnChanges(changes: SimpleChanges): void {
+    if (!changes["section"]) return;
+    this.safeHtml = this.trustReplica();
+    this.credits = this.readCredits();
+    this.applyScopedCss();
+  }
+
+  ngOnDestroy(): void {
+    this.removeScopedCss();
+  }
+
+  /**
+   * Bypasses Angular's sanitizer for `custom-html` markup only.
+   *
+   * Safe here because this string has already been through the studio's own
+   * sanitizer at operation-apply time — a strict tag/attribute allowlist that
+   * drops script, style, event handlers and non-http(s) URLs before the content
+   * is ever stored. Angular's pass on top of that would not add safety, but it
+   * would silently delete the SVG and structural markup a faithful replica is
+   * made of. It would stop being safe the moment anything reaches this input
+   * without going through that path — content pasted straight into the store, a
+   * blueprint imported from elsewhere, or a second field added to the schema and
+   * rendered here without being sanitized on the way in.
+   */
+  private trustReplica(): SafeHtml | null {
+    if (this.section?.type !== "custom-html") return null;
+    return this.sanitizer.bypassSecurityTrustHtml(this.value("html"));
+  }
+
+  /**
+   * Injects the replica's scoped stylesheet.
+   *
+   * The CSS cannot travel inside the markup: DomSanitizer strips <style> from
+   * [innerHTML] outright, and even with the bypass above Angular's emulated
+   * encapsulation never rewrites nodes it did not compile, so a component
+   * stylesheet could not reach them either. A plain style element created here
+   * is unencapsulated and global — which is exactly why the rules are scoped to
+   * this section's id before they are stored.
+   *
+   * The previous element is removed first. Editing a replica re-runs this on
+   * every keystroke, and appending without removing would leave one dead
+   * stylesheet per edit, each still matching this section.
+   */
+  private applyScopedCss(): void {
+    this.removeScopedCss();
+    if (this.section?.type !== "custom-html") return;
+    const css = this.value("css");
+    if (!css) return;
+
+    const el: HTMLStyleElement = this.renderer.createElement("style");
+    this.renderer.appendChild(el, this.renderer.createText(css));
+    this.renderer.appendChild(this.host.nativeElement, el);
+    this.styleEl = el;
+  }
+
+  private removeScopedCss(): void {
+    if (!this.styleEl) return;
+    this.renderer.removeChild(this.host.nativeElement, this.styleEl);
+    this.styleEl = null;
+  }
+
+  private readCredits(): { text: string; url: string }[] {
+    const raw = this.section?.content?.["credits"];
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((c: any) => c && typeof c.text === "string" && c.text.trim())
+      .map((c: any) => ({ text: String(c.text).trim(), url: typeof c.url === "string" ? c.url : "" }));
+  }
 
   /** Content lookup with a fallback, so a missing field never renders "undefined". */
   value(key: string, fallback = ""): string {

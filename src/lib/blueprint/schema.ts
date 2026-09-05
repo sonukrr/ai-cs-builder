@@ -248,7 +248,13 @@ export const Project = z.object({
   entryPoint: z.enum(["figma", "base"]),
   /** Figma file key or base repo URL, depending on entryPoint. */
   sourceRef: z.string().default(""),
-  status: z.enum(["planning", "ready", "publish-requested"]).default("planning"),
+  /**
+   * `reviewing` is the design-fidelity gate: the site is built, but a Figma
+   * import is held there until an administrator has approved the comparison
+   * between the design and what was built. Base-site projects never enter it —
+   * they have no design to be compared against.
+   */
+  status: z.enum(["planning", "reviewing", "ready", "publish-requested"]).default("planning"),
   currentVersion: z.number().int().nonnegative().default(0),
 });
 export type Project = z.infer<typeof Project>;

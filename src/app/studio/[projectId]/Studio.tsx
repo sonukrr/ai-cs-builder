@@ -8,7 +8,9 @@ import {
   type ViewportName,
 } from "@/components/preview/PreviewFrame";
 import { ComponentCatalog } from "@/components/studio/ComponentCatalog";
+import { FidelityReview } from "@/components/studio/FidelityReview";
 import type { Blueprint, Section } from "@/lib/blueprint/schema";
+import type { FidelityReport } from "@/lib/fidelity/types";
 
 /**
  * Screen 3 — the Career Site Studio.
@@ -177,8 +179,14 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
   const [error, setError] = useState("");
   const [showHistory, setShowHistory] = useState(false);
 
+  const [fidelity, setFidelity] = useState<FidelityReport | null>(null);
+  const [fidelityError, setFidelityError] = useState("");
+  const [checking, setChecking] = useState(false);
+
   const logRef = useRef<HTMLDivElement>(null);
   const kickedOff = useRef(false);
+  /** The blueprint version the review has already been run for. */
+  const fidelityRun = useRef(-1);
 
   const load = useCallback(async () => {
     const response = await fetch(`/api/projects/${projectId}`);
@@ -220,6 +228,65 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
   }, [streaming, activity, data?.conversation.length]);
+
+  /*
+    The fidelity gate. A Figma import lands in "reviewing" and the studio stays
+    shut until an administrator has seen the comparison and approved it. Base
+    projects have no design to compare against, so they are never gated —
+    checked explicitly, because gating one would strand it forever.
+  */
+  const gated = data?.project.status === "reviewing" && data.project.entryPoint !== "base";
+  const reviewVersion = data?.project.currentVersion ?? 0;
+
+  /** Runs the comparison again — a real browser over the preview, so it is slow. */
+  const checkFidelity = useCallback(async () => {
+    setChecking(true);
+    try {
+      const response = await fetch(`/api/projects/${projectId}/fidelity`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "Could not check the site against the design");
+      setFidelity(body.report as FidelityReport);
+      setFidelityError("");
+    } catch (caught) {
+      // A report that will not come must not lock the admin out; the review
+      // screen falls back to letting them judge the preview by eye.
+      setFidelityError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setChecking(false);
+    }
+  }, [projectId]);
+
+  const loadFidelity = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/projects/${projectId}/fidelity`);
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "Could not load the fidelity report");
+      if (body.report) {
+        setFidelity(body.report as FidelityReport);
+        setFidelityError("");
+        return;
+      }
+      if (!body.available) throw new Error(body.reason ?? "There is nothing to compare this site to");
+      // Nothing stored yet, so the first look at this screen is what runs it.
+      await checkFidelity();
+    } catch (caught) {
+      setFidelity(null);
+      setFidelityError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }, [checkFidelity, projectId]);
+
+  // Re-read on every new version too: fixes sent from the review screen leave
+  // the report on screen a version out of date. Guarded by version because the
+  // first load can start a capture, which is expensive and runs twice in dev.
+  useEffect(() => {
+    if (!gated || fidelityRun.current === reviewVersion) return;
+    fidelityRun.current = reviewVersion;
+    void loadFidelity();
+  }, [gated, loadFidelity, reviewVersion]);
 
   const send = useCallback(
     async (message: string) => {
@@ -370,6 +437,35 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
     .find((section) => section.id === selectedSectionId);
 
   const currentPage = blueprint?.pages.find((page) => page.id === pageId) ?? blueprint?.pages[0];
+
+  if (gated) {
+    return (
+      <FidelityReview
+        projectId={projectId}
+        projectName={blueprint?.company.name ?? data.project.name}
+        report={fidelity}
+        loadError={fidelityError}
+        checking={checking}
+        onRecheck={checkFidelity}
+        sending={busy}
+        sendError={error}
+        // The assistant answers into the same transcript the chat panel uses;
+        // the review shows the tail of it so a fix request is not a black box.
+        agentReply={
+          data.conversation.filter((turn) => turn.role === "assistant").at(-1)?.content ?? ""
+        }
+        onSendFixes={async (message) => {
+          await send(message);
+          // The assistant re-runs the check itself, so pick up whatever it left
+          // behind rather than showing the report it was asked to fix.
+          await loadFidelity();
+        }}
+        onApproved={() => {
+          void load();
+        }}
+      />
+    );
+  }
 
   return (
     <div className="studio">

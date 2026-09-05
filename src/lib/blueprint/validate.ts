@@ -1,5 +1,6 @@
 import { Blueprint, LayoutProps, MAX_SECTION_DEPTH, type Section } from "./schema";
 import { getComponent, getLayoutSection, getStaticSection, LAYOUT_SECTIONS } from "@/lib/registry";
+import { needsImageCredit, sanitizeCustomHtml } from "./html";
 
 export interface ValidationIssue {
   level: "error" | "warning";
@@ -188,6 +189,57 @@ export function validateBlueprint(blueprint: Blueprint): ValidationIssue[] {
         path: sectionPath,
         message:
           "a custom section cannot be functional — functional capability must come from the approved library",
+      });
+    }
+    if (section.type === "custom-html") checkReplica(section, sectionPath);
+  };
+
+  /**
+   * Re-sanitizes a stored replica and insists nothing changes.
+   *
+   * operations.ts sanitizes on the way in, so a replica that is still dirty
+   * here did not come through apply_operations — a hand-edited store file, a
+   * restored version from before this check existed, a future writer nobody
+   * has told about the rule. Sanitizing is idempotent for a given section id,
+   * so for content that went through the front door this is silent; anything
+   * it reports is content that would otherwise reach a browser unchecked,
+   * which is an error and not a warning.
+   */
+  const checkReplica = (section: Section, sectionPath: string) => {
+    const clean = sanitizeCustomHtml(section.id, section.content);
+    for (const problem of clean.problems) {
+      issues.push({ level: "error", path: `${sectionPath}.content`, message: problem });
+    }
+    if (clean.dropped.length > 0) {
+      issues.push({
+        level: "error",
+        path: `${sectionPath}.content`,
+        message: `stored markup is not sanitized — it still contains ${clean.dropped.join("; ")}`,
+      });
+    }
+    if (
+      clean.problems.length === 0 &&
+      (clean.content["html"] !== section.content["html"] ||
+        clean.content["css"] !== section.content["css"])
+    ) {
+      issues.push({
+        level: "error",
+        path: `${sectionPath}.content`,
+        message:
+          "stored markup or CSS differs from its sanitized form — it was written to the blueprint without going through apply_operations",
+      });
+    }
+
+    // Both stock licences require the credit to be visible wherever the
+    // photograph is. A replica pulls images straight into its own markup, so
+    // nothing else on the page can be carrying the attribution for it.
+    const credits = section.content["credits"];
+    const hasCredits = Array.isArray(credits) && credits.length > 0;
+    if (!hasCredits && needsImageCredit(String(section.content["html"] ?? ""))) {
+      issues.push({
+        level: "warning",
+        path: `${sectionPath}.content.credits`,
+        message: `"${section.label || section.type}" shows images from outside the project's own uploads but carries no credits — stock licences require attribution on display`,
       });
     }
   };

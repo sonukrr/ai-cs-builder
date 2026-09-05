@@ -47,7 +47,13 @@ export async function POST(
     summary: "Created the site from the imported design",
     operations: [{ op: "approve_plan" }],
   });
-  await store.updateProject(projectId, { status: "ready" });
+  // A Figma import is not finished here. The design still has to be checked
+  // against what was actually built, so the project goes to "reviewing" and the
+  // studio stays closed until an administrator approves that comparison. A base
+  // project has no design to compare against and would be stranded behind a
+  // gate it could never pass, so it still goes straight to "ready".
+  const status = project.entryPoint === "figma" ? "reviewing" : "ready";
+  await store.updateProject(projectId, { status });
 
-  return Response.json({ version: version.version, blueprint, warnings: issues });
+  return Response.json({ version: version.version, blueprint, warnings: issues, status });
 }

@@ -195,8 +195,11 @@ if (process.argv.includes("--seed")) {
     blueprint: { ...moved.blueprint, projectId: project.id },
     summary: "Created the site from the imported design",
   });
-  await store.updateProject(project.id, { status: "ready" });
-  console.log(`\nSeeded a demo project. Open:\n  http://localhost:3000/studio/${project.id}\n`);
+  // "reviewing", not "ready": a Figma import now lands in the design fidelity
+  // review, and seeding straight past it would mean the one stage that gates
+  // the studio is the one stage the demo never shows.
+  await store.updateProject(project.id, { status: "reviewing" });
+  console.log(`\nSeeded a demo project, waiting on its design fidelity review. Open:\n  http://localhost:3000/studio/${project.id}\n`);
 }
 
 console.log(failures === 0 ? "\nAll checks passed.\n" : `\n${failures} check(s) failed.\n`);

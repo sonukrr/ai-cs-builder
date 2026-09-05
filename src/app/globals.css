@@ -286,6 +286,133 @@ select {
   margin-top: 16px;
 }
 
+/* ---- fidelity review ----------------------------------------------------- */
+
+/*
+  Sized wider than the plan screen because it has to hold two screenshots side
+  by side; everything else is deliberately the plan screen's chrome, since it is
+  the same kind of moment.
+*/
+.fidelity {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 40px 24px 96px;
+}
+.fidelity h1 {
+  font-size: 26px;
+}
+
+.fidelity-shots {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 20px;
+}
+@media (max-width: 900px) {
+  .fidelity-shots {
+    grid-template-columns: 1fr;
+  }
+}
+
+.fidelity-shot {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.fidelity-shot > header {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+/* Designs are tall; cap the pane and let each side scroll on its own. */
+.fidelity-shot .shot-body {
+  max-height: 460px;
+  overflow: auto;
+  background: var(--bg-inset);
+  display: flex;
+  justify-content: center;
+}
+.fidelity-shot img {
+  width: 100%;
+  display: block;
+}
+
+.fidelity-band {
+  display: grid;
+  grid-template-columns: 84px 1fr auto auto;
+  gap: 12px;
+  align-items: start;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border-soft);
+  border-left: 3px solid transparent;
+}
+.fidelity-band:last-child {
+  border-bottom: 0;
+}
+.fidelity-band.is-blocking {
+  border-left-color: var(--bad);
+  background: #1c1416;
+}
+.fidelity-band.is-watch {
+  border-left-color: var(--warn);
+}
+.fidelity-note {
+  color: var(--text-faint);
+  font-size: 12.5px;
+  margin-top: 3px;
+}
+.fidelity-col {
+  color: var(--text-faint);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 3px;
+}
+
+.fidelity-token {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.fidelity-token:last-child {
+  border-bottom: 0;
+}
+.fidelity-token.is-head {
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  background: var(--bg-raised);
+}
+.fidelity-token.is-off {
+  background: #1c1416;
+}
+
+.swatch {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+
+.fidelity-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 26px;
+}
+
 /* ---- studio -------------------------------------------------------------- */
 
 .studio {

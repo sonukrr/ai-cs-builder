@@ -190,6 +190,15 @@ p {
   margin-bottom: 12px;
 }
 
+/* An agent-authored replica of a design band. It brings its own stylesheet,
+   scoped to its section id, so there is deliberately nothing to style here
+   beyond giving it a box of its own — anything opinionated would fight the
+   replica for control of its own layout. */
+.custom-html {
+  display: block;
+  position: relative;
+}
+
 /* Attribution. Both stock licences require it on display, so it is part of the
    design rather than something bolted on later. */
 .credit {
@@ -209,6 +218,14 @@ p {
   display: block;
   margin-top: 6px;
   color: var(--brand-muted);
+}
+.credit.credits {
+  padding: 0 32px 12px;
+
+  /* Separator between credits, whichever element each one turned out to be. */
+  > * + *::before {
+    content: " · ";
+  }
 }
 
 .split {

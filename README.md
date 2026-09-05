@@ -93,9 +93,10 @@ hard ceiling on what a single edit can do.
 
 ## The Figma import
 
-This is the path built out most deeply. Five stages, in
-[`src/lib/providers/figma/`](src/lib/providers/figma/) and
-[`src/lib/agent/analyze.ts`](src/lib/agent/analyze.ts):
+This is the path built out most deeply. Six stages, in
+[`src/lib/providers/figma/`](src/lib/providers/figma/),
+[`src/lib/agent/analyze.ts`](src/lib/agent/analyze.ts) and
+[`src/lib/fidelity/`](src/lib/fidelity/):
 
 1. **Fetch** through one of three interchangeable backends (below), normalizing
    to a single `DesignDocument` shape.
@@ -114,6 +115,53 @@ This is the path built out most deeply. Five stages, in
    are stripped. Ids are made unique.
 5. **Approve.** The plan screen shows every section, why it was read that way and
    how confident the model was. Nothing is built until an administrator approves.
+6. **Design fidelity review.** The built site is compared back against the design
+   it came from, and the project stays closed until a human signs the comparison
+   off. Below.
+
+### Design fidelity review
+
+An approved plan no longer opens the studio. `approve_plan` builds version 1 and
+leaves the project in `reviewing`; the review screen shows the design beside what
+was built, band by band, and the administrator's approval is what moves it to
+`ready`. Projects started from the base site skip the stage entirely — there is
+no design to compare them against, and a gate they could never pass would simply
+lock them out.
+
+The comparison joins on `origin.ref`, the Figma node id each imported section
+already carries, so band → section is exact rather than re-inferred. It reports
+three things:
+
+| Axis | How it is judged |
+|---|---|
+| Coverage and order | Exact. A band with no section (`missing`) or a section with no band (`extra`) is blocking. |
+| Design tokens | Exact. Colours, fonts and radius are either what the design specified or they are not. |
+| Visual similarity | Evidence only. A 32×32 downsample of the design frame against a screenshot of the built section, reported as a score, never as a verdict. |
+
+**Why a human approves it and not a threshold.** A pixel gate here would fail
+every import forever. Two facts make that unavoidable, and both are deliberate.
+The importer throws geometry away —
+[`summarize.ts` line 10](src/lib/providers/figma/summarize.ts) flattens each
+frame into bands and keeps text, height and structural counts, nothing about
+where anything sat. And the preview renders the *real* approved
+`zm-careers-lib` components: `<lib-facets>` has its own markup, spacing and type,
+and cannot be made pixel-identical to a rectangle a designer drew — that
+substitution is the entire point of importing into an approved library rather
+than exporting the design as code. So a score of 0.6 on a section where an
+approved component replaced a bespoke block is the expected outcome, not a
+defect. The exact axes are checked mechanically because they *can* be; the
+visual axis is put in front of somebody who can tell an acceptable substitution
+from a wrong one.
+
+The report is always produced, even when nothing could be captured — a missing
+Chrome or a preview host that is not running lands in `capture.unavailable` as a
+sentence an administrator can act on, and the review still opens. Being unable
+to take a screenshot must never be able to strand a project.
+
+The agent can run and re-run the comparison (`review_fidelity`) and read the
+last one (`get_fidelity_report`), and is expected to propose fixes for whatever
+is missing or extra. It has no tool that approves anything. That is not an
+oversight — an approval the agent can grant itself is not an approval.
 
 ### Figma backends
 
@@ -257,9 +305,9 @@ cannot escalate into rewriting the application.
 The same manifest goes into the system prompt, so the agent knows which of its
 own tools will work and can say what is missing instead of failing opaquely.
 
-`IMPORT_FIGMA` · `START_FROM_BASE` · `MODIFY_SITE` · `ADD_FUNCTIONALITY` ·
-`MANAGE_IMAGERY` · `RESEARCH_OR_INSPIRATION` · `VERSION_AND_PREVIEW` ·
-`REQUEST_PUBLISH`
+`IMPORT_FIGMA` · `START_FROM_BASE` · `DESIGN_FIDELITY` · `MODIFY_SITE` ·
+`ADD_FUNCTIONALITY` · `MANAGE_IMAGERY` · `RESEARCH_OR_INSPIRATION` ·
+`VERSION_AND_PREVIEW` · `REQUEST_PUBLISH`
 
 ### Research
 
@@ -384,3 +432,6 @@ Enforced in code, not in the prompt:
   library cannot serve is recorded on the project as unsupported, never built.
 - Versions are append-only. Undo replays an old version forward as a new one, so
   history cannot be rewritten and the undo is itself undoable.
+- An imported site stays in `reviewing` until a person approves the fidelity
+  comparison. The agent has tools to run the check and fix what it finds, and
+  none that approve it.

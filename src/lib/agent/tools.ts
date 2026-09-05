@@ -5,6 +5,7 @@ import { applyOperations, BlueprintOperation } from "@/lib/blueprint/operations"
 import { isBuildable, validateBlueprint } from "@/lib/blueprint/validate";
 import { store } from "@/lib/store/store";
 import { getFigmaProvider, parseFigmaUrl } from "@/lib/providers/figma";
+import { summarizeDesign } from "@/lib/providers/figma/summarize";
 import { analyzeDesign, planToBlueprint } from "./analyze";
 import {
   baseSiteRepo,
@@ -14,6 +15,8 @@ import {
 } from "@/lib/providers/github";
 import { buildImageTools } from "./image-tools";
 import { buildDatasetTools } from "./dataset-tools";
+import { buildFidelityTools } from "./fidelity-tools";
+import { buildDesignTools } from "./design-tools";
 import type { Blueprint, Section } from "@/lib/blueprint/schema";
 
 /**
@@ -196,7 +199,8 @@ export function buildTools(context: ToolContext) {
   const listSections = betaZodTool({
     name: "list_static_sections",
     description:
-      "List the static presentation sections the renderer supports. These carry content only and never provide functional behaviour.",
+      "List the static presentation sections the renderer supports. These carry content only and never provide functional behaviour. " +
+      "They are fixed shapes, so use one only when the band really is that shape. A band whose arrangement none of them describes is a \"custom-html\" section instead: add it with apply_operations, read the design with describe_design_node, and author it with set_custom_html. Bending a bespoke band into the nearest listed type is how a design stops looking like the design.",
     inputSchema: z.object({}),
     run: async () => {
       onActivity("list_static_sections", "Listed the available presentation sections");
@@ -264,7 +268,8 @@ export function buildTools(context: ToolContext) {
             `\nLayout props, with their defaults: direction "column"|"row"|"grid" ("column"), columns 1-12 (2, grid only), gap 0-96 (24), align "start"|"center"|"end"|"stretch" ("stretch"), justify "start"|"center"|"end"|"space-between"|"space-around" ("start"), wrap true (row only), padding 0-160 (0), maxWidth 0-2560 (0 = full bleed), background hex or "" (""), stackBelow 0-1600 (720 — below this viewport width a row or grid collapses to one column; 0 = never), reverseOnMobile false.` +
             `\nChild layout: span 1-12 (grid column span), grow 0-12 (share of the leftover space in a row), basis e.g. "300px" or "40%", align, order. In a row, a child with basis and no grow is a fixed-width sidebar, and a child with grow 1 takes the rest; a child that sets neither shares the row equally.` +
             `\nWorked example — put the facet filter on the left and the job list on the right, in one row: ` +
-            `[{"op":"wrap_sections","id":"jobs-row","layoutType":"row","label":"Jobs","sectionIds":["job-filters","job-listing"],"props":{"gap":32,"align":"start","maxWidth":1200,"padding":24},"childLayout":{"job-filters":{"basis":"300px"},"job-listing":{"grow":1}}}]`,
+            `[{"op":"wrap_sections","id":"jobs-row","layoutType":"row","label":"Jobs","sectionIds":["job-filters","job-listing"],"props":{"gap":32,"align":"start","maxWidth":1200,"padding":24},"childLayout":{"job-filters":{"basis":"300px"},"job-listing":{"grow":1}}}]` +
+            `\nWHAT A BAND OF A DESIGN SHOULD BECOME — decide in this order, and stop at the first that fits. (1) FUNCTIONAL — search, filtering, listings, pagination, apply, resume upload: an approved component, source "zm-careers-lib", found with search_components. Never hand-write one. (2) A WRAPPER — a band that only holds the bands below it, e.g. a frame named "Container" 820px tall: source "layout", type row/stack/grid. (3) PRESENTATION with no behaviour that no static type describes — a bespoke hero, a stats strip, an editorial block, an unusual footer: source "custom", type "custom-html", then describe_design_node and set_custom_html to author the replica. Use a fixed static type (hero, benefits, faq…) only when the band genuinely is that shape. (4) NOTHING — a zero-height frame, an empty or hidden node, or a duplicate of something already built: record_unsupported and move on. Manufacturing copy to fill a band that carries nothing is worse than leaving it out.`,
         ),
       summary: z
         .string()
@@ -348,7 +353,10 @@ export function buildTools(context: ToolContext) {
 
       onActivity("import_figma", `Fetching the Figma design ${parsed.fileKey}`);
       const provider = getFigmaProvider();
-      const design = await provider.fetchDesign(parsed.fileKey, nodeId ?? parsed.nodeId);
+      // Passing the project id is what makes the rendered frame PNGs persist:
+      // the backends put them through the asset store instead of leaving
+      // Figma's signed URLs, which expire long before anyone reviews them.
+      const design = await provider.fetchDesign(parsed.fileKey, nodeId ?? parsed.nodeId, projectId);
 
       onActivity("import_figma", `Analysing ${design.frames.length} frame(s) from “${design.fileName}”`);
       const { plan, dropped } = await analyzeDesign(design);
@@ -358,7 +366,18 @@ export function buildTools(context: ToolContext) {
         fileName: design.fileName,
         dropped,
         warnings: design.warnings,
+        // The fidelity review compares the built site back against the design,
+        // so the design has to survive past this request. Band heights and the
+        // rendered frame images live only on the DesignDocument, which is not
+        // persisted anywhere else — without them the review can still check
+        // coverage and tokens, but it has no reference image to show.
+        designSummary: summarizeDesign(design),
+        designStyles: design.styles,
+        designImages: design.images,
       });
+      // The summary above deliberately has no geometry, so it cannot drive a
+      // replica. describe_design_node reads the document itself for that.
+      await store.saveDesign(projectId, design);
       await store.updateProject(projectId, { sourceRef: parsed.fileKey, entryPoint: "figma" });
 
       const pages = plan.pages
@@ -394,7 +413,7 @@ export function buildTools(context: ToolContext) {
   const approvePlan = betaZodTool({
     name: "approve_plan",
     description:
-      "Turn the pending site plan into the project's first site blueprint. Only call this when the admin has explicitly approved the plan.",
+      "Turn the pending site plan into the project's first site blueprint. Only call this when the admin has explicitly approved the plan. For an imported design this does not open the studio: the project moves to design fidelity review, where the built site is compared against the Figma design and an administrator has to approve the result.",
     inputSchema: z.object({}),
     run: async () => {
       const pending = await store.getPlan(projectId);
@@ -411,9 +430,30 @@ export function buildTools(context: ToolContext) {
         summary: `Created the site from the imported design`,
         operations: [{ op: "approve_plan" }],
       });
-      await store.updateProject(projectId, { status: "ready" });
-      onActivity("approve_plan", `Built the site from the approved plan (version ${version.version})`);
-      return `Built version ${version.version}: ${blueprint.pages.length} page(s), ${blueprint.pages.reduce((n, p) => n + countSections(p.sections), 0)} sections. The preview is live.`;
+
+      // Only an imported design can be reviewed against anything. A base-site
+      // project has no design behind it, so sending it to "reviewing" would
+      // park it behind a gate that can never be passed.
+      const project = await store.getProject(projectId);
+      const reviewable = project?.entryPoint === "figma";
+      await store.updateProject(projectId, { status: reviewable ? "reviewing" : "ready" });
+
+      const built = `Built version ${version.version}: ${blueprint.pages.length} page(s), ${blueprint.pages.reduce((n, p) => n + countSections(p.sections), 0)} sections.`;
+
+      onActivity(
+        "approve_plan",
+        reviewable
+          ? `Built the site from the approved plan (version ${version.version}) — awaiting design fidelity review`
+          : `Built the site from the approved plan (version ${version.version})`,
+      );
+
+      if (!reviewable) return `${built} The preview is live.`;
+
+      return [
+        built,
+        "The preview is live, but the project is now in DESIGN FIDELITY REVIEW rather than ready: the studio stays closed until an administrator approves the comparison between the Figma design and what was built.",
+        "Run review_fidelity now, tell the administrator what it found — anything missing or extra is worth fixing before they look — and then ask them to open the fidelity review screen and approve it. You cannot approve it yourself.",
+      ].join("\n");
     },
   });
 
@@ -683,5 +723,7 @@ export function buildTools(context: ToolContext) {
     requestPublish,
     ...buildImageTools({ projectId, onActivity }),
     ...buildDatasetTools({ projectId, onActivity }),
+    ...buildFidelityTools({ projectId, onActivity }),
+    ...buildDesignTools({ projectId, onActivity }),
   ];
 }

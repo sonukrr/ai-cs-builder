@@ -556,6 +556,61 @@ function StaticSection({ section, blueprint }: { section: Section; blueprint: Bl
         </div>
       );
 
+    case "custom-html": {
+      // Attribution is not optional: Unsplash and Pexels both require it while
+      // the image is on screen, so it renders next to the replica whether or
+      // not the design left room for it.
+      const credits = list(content, "credits")
+        .map((credit) => ({ text: str(credit, "text"), url: str(credit, "url") }))
+        .filter((credit) => credit.text);
+
+      return (
+        // `data-section-id` is what the replica's stylesheet is scoped to — the
+        // studio rewrites every selector in `css` to sit under this attribute
+        // when the section is saved, so without it nothing below is styled.
+        <div data-section-id={section.id} style={{ position: "relative" }}>
+          {/*
+            Both of these write strings straight into the DOM, and both are safe
+            for the same reason: `html` and `css` were sanitized server-side when
+            the operation was applied — a strict tag and attribute allowlist,
+            with script/style/event handlers and non-http(s) URLs removed, and
+            the CSS scoped to this section. React's escaping is not what makes
+            this safe and would not make it safe; it would only turn a faithful
+            replica into visible angle brackets. This stops being safe the moment
+            `content.html` can be set by a path that skips that sanitizer — a
+            blueprint imported as raw JSON, or a new field rendered here without
+            the same treatment on the way in.
+
+            The stylesheet cannot ride inside the markup: the sanitizer strips
+            <style> from the replica, and the Angular preview's DomSanitizer
+            would strip it again, so all three renderers inject it separately.
+          */}
+          {str(content, "css") && (
+            <style dangerouslySetInnerHTML={{ __html: str(content, "css") }} />
+          )}
+          <div dangerouslySetInnerHTML={{ __html: str(content, "html") }} />
+          {credits.length > 0 && (
+            <small style={{ display: "block", padding: "6px 32px 12px", fontSize: 11, color: "var(--muted)" }}>
+              {credits.map((credit, index) => (
+                <span key={index}>
+                  {index > 0 && " · "}
+                  {/* A credit with no link is still a credit; an empty href
+                      would reload the studio. */}
+                  {credit.url ? (
+                    <a href={credit.url} target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>
+                      {credit.text}
+                    </a>
+                  ) : (
+                    credit.text
+                  )}
+                </span>
+              ))}
+            </small>
+          )}
+        </div>
+      );
+    }
+
     default:
       return (
         <div style={{ ...wrap, padding: "48px 32px", maxWidth: 760 }}>

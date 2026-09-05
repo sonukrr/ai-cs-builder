@@ -1,3 +1,4 @@
+import { MAX_UPLOAD_BYTES, assets } from "@/lib/store/assets";
 import {
   type DesignDocument,
   type DesignFrame,
@@ -61,7 +62,7 @@ export class FigmaRestProvider implements FigmaProvider {
     return (await response.json()) as T;
   }
 
-  async fetchDesign(fileKey: string, nodeId?: string): Promise<DesignDocument> {
+  async fetchDesign(fileKey: string, nodeId?: string, projectId?: string): Promise<DesignDocument> {
     const warnings: string[] = [];
     let nodeCount = 0;
 
@@ -148,7 +149,20 @@ export class FigmaRestProvider implements FigmaProvider {
       warnings.push("No top-level frames found — is this file a component library?");
     }
 
-    const images = await this.renderFrames(fileKey, frames.map((f) => f.id), warnings);
+    const rendered = await this.renderFrames(fileKey, frames.map((f) => f.id), warnings);
+    // Figma's render URLs are signed S3 links that stop resolving well before
+    // anyone opens the fidelity review, so the bytes are pulled across into the
+    // asset store here, while they are still live.
+    const images = projectId
+      ? await persistDesignImages(projectId, rendered, warnings, (id) =>
+          frames.find((f) => f.id === id)?.name ?? id,
+        )
+      : {};
+    if (!projectId && Object.keys(rendered).length > 0) {
+      warnings.push(
+        "Frame previews were rendered but not stored: this import had no project to store them against.",
+      );
+    }
     const styles = collectStyles(frames);
 
     return {
@@ -233,4 +247,124 @@ export function collectStyles(frames: DesignFrame[]): DesignStyles {
         fontWeight: style.fontWeight,
       })),
   };
+}
+
+/**
+ * Moves rendered frame PNGs into the project's asset store.
+ *
+ * Shared by all three backends rather than living in one of them: whichever
+ * backend produced the design, the fidelity review reads `images` back hours
+ * later and every transport hands us something that does not survive that
+ * long — a signed S3 link from REST, an in-memory blob from MCP.
+ *
+ * Nothing in here is allowed to fail an import. A design that arrived without
+ * its pictures is still a design; a review with no reference image says so in
+ * plain English instead.
+ *
+ * @param altFor Optional layer-name lookup, so the stored asset carries the
+ *   Figma name an admin would recognise rather than a bare node id.
+ */
+export async function persistDesignImages(
+  projectId: string,
+  images: Record<string, string>,
+  warnings: string[],
+  altFor?: (nodeId: string) => string,
+): Promise<Record<string, string>> {
+  const entries = Object.entries(images).filter(([, url]) => Boolean(url));
+  if (entries.length === 0 || !projectId) return {};
+
+  const stored: Record<string, string> = {};
+  // Sequential on purpose: a dozen full-page PNGs downloaded at once is enough
+  // to make a laptop-sized import feel like it has hung.
+  for (const [nodeId, url] of entries) {
+    // Already ours — re-importing a design must not re-download our own files.
+    if (url.startsWith("/api/projects/")) {
+      stored[nodeId] = url;
+      continue;
+    }
+    const saved = await persistDesignImage(
+      projectId,
+      url,
+      `Figma frame “${altFor?.(nodeId) ?? nodeId}”`,
+      warnings,
+    );
+    if (saved) stored[nodeId] = saved;
+  }
+  return stored;
+}
+
+/** One frame. Returns "" when the bytes could not be fetched or stored. */
+export async function persistDesignImage(
+  projectId: string,
+  url: string,
+  alt: string,
+  warnings: string[],
+): Promise<string> {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = new Uint8Array(await response.arrayBuffer());
+    return await storeDesignImage(projectId, data, response.headers.get("content-type"), alt, warnings);
+  } catch (error) {
+    warnings.push(
+      `Could not store the reference image for ${alt}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return "";
+  }
+}
+
+/**
+ * Stores image bytes we already hold — the MCP backend returns base64 rather
+ * than a URL, and the mock backend draws its own.
+ */
+export async function storeDesignImage(
+  projectId: string,
+  data: Uint8Array,
+  contentType: string | null | undefined,
+  alt: string,
+  warnings: string[],
+): Promise<string> {
+  // A tall careers frame renders large; the asset store's ceiling is a real
+  // limit, and blowing past it should cost one picture, not the import.
+  if (data.byteLength > MAX_UPLOAD_BYTES) {
+    warnings.push(
+      `Reference image for ${alt} is ${Math.round(data.byteLength / 1024)}KB, over the ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)}MB asset limit — skipped.`,
+    );
+    return "";
+  }
+
+  // Figma answers `format=png` with PNG, but a proxy or a CDN in front of it
+  // can send back `application/octet-stream`, which the asset store rejects.
+  // The bytes themselves are the honest answer.
+  const type = sniffImageType(data) ?? (contentType ?? "").split(";")[0].trim();
+  if (!assets.isAllowed(type)) {
+    warnings.push(`Reference image for ${alt} was ${type || "an unknown type"}, not an image — skipped.`);
+    return "";
+  }
+
+  try {
+    const saved = await assets.save(projectId, { data, contentType: type, alt });
+    return saved.url;
+  } catch (error) {
+    warnings.push(
+      `Could not store the reference image for ${alt}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return "";
+  }
+}
+
+/** Magic-byte sniff, limited to what the asset store will accept. */
+export function sniffImageType(data: Uint8Array): string | null {
+  const at = (index: number) => data[index];
+  if (data.length < 12) return null;
+  if (at(0) === 0x89 && at(1) === 0x50 && at(2) === 0x4e && at(3) === 0x47) return "image/png";
+  if (at(0) === 0xff && at(1) === 0xd8 && at(2) === 0xff) return "image/jpeg";
+  if (at(0) === 0x47 && at(1) === 0x49 && at(2) === 0x46) return "image/gif";
+  // RIFF....WEBP
+  if (at(0) === 0x52 && at(1) === 0x49 && at(2) === 0x46 && at(3) === 0x46 && at(8) === 0x57) {
+    return "image/webp";
+  }
+  const head = new TextDecoder().decode(data.slice(0, 256)).trimStart();
+  if (head.startsWith("<svg") || head.startsWith("<?xml")) return "image/svg+xml";
+  return null;
 }

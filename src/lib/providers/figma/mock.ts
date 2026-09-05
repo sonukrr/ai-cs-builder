@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
+import { PNG } from "pngjs";
 import type { DesignDocument, DesignFrame, DesignNode, FigmaProvider } from "./types";
-import { collectStyles } from "./rest";
+import { collectStyles, storeDesignImage } from "./rest";
 
 /**
  * Demo backend — a plausible careers design, with no credentials required.
@@ -265,7 +266,7 @@ export class FigmaMockProvider implements FigmaProvider {
     this.fixturePath = fixturePath;
   }
 
-  async fetchDesign(fileKey: string): Promise<DesignDocument> {
+  async fetchDesign(fileKey: string, _nodeId?: string, projectId?: string): Promise<DesignDocument> {
     if (this.fixturePath) {
       const raw = JSON.parse(await readFile(this.fixturePath, "utf8"));
       // A real /v1/files/:key dump; reuse the REST normalizer's shape contract.
@@ -273,6 +274,10 @@ export class FigmaMockProvider implements FigmaProvider {
     }
 
     const frames = buildFrames();
+    const warnings = [
+      "This is the built-in demo design. Set FIGMA_PROVIDER=mcp or =rest to import a real file.",
+    ];
+
     return {
       fileKey: fileKey || "demo-northwind",
       fileName: "Northwind Labs — Careers",
@@ -280,10 +285,100 @@ export class FigmaMockProvider implements FigmaProvider {
       backend: this.backend,
       frames,
       styles: collectStyles(frames),
-      images: {},
-      warnings: [
-        "This is the built-in demo design. Set FIGMA_PROVIDER=mcp or =rest to import a real file.",
-      ],
+      images: await renderFrameImages(frames, projectId, warnings),
+      warnings,
     };
   }
+}
+
+/**
+ * Draws each frame as the stack of coloured bands it actually is.
+ *
+ * The demo has no Figma behind it to screenshot, and an empty `images` would
+ * quietly switch the whole reference-image path off on the one backend that is
+ * meant to exercise every path with no credentials. These are honest enough to
+ * compare against: the bands are in design order, in the design's own colours
+ * and in proportion to their real heights, which is exactly what the 32x32
+ * visual score looks at.
+ */
+async function renderFrameImages(
+  frames: DesignFrame[],
+  projectId: string | undefined,
+  warnings: string[],
+): Promise<Record<string, string>> {
+  const images: Record<string, string> = {};
+
+  for (const frame of frames) {
+    const png = drawFrame(frame);
+    // With no project to store against, the picture travels inline. It is a few
+    // kilobytes of flat colour, so this stays cheap — do not do it for real
+    // screenshots, which are two orders of magnitude larger.
+    images[frame.id] = projectId
+      ? await storeDesignImage(projectId, png, "image/png", `Figma frame “${frame.name}”`, warnings)
+      : `data:image/png;base64,${Buffer.from(png).toString("base64")}`;
+    if (!images[frame.id]) delete images[frame.id];
+  }
+
+  return images;
+}
+
+/** A quarter-scale render is plenty: the comparison downsamples to 32x32. */
+const MOCK_SCALE = 0.25;
+
+function drawFrame(frame: DesignFrame): Uint8Array {
+  const width = Math.max(1, Math.round(frame.bounds.width * MOCK_SCALE));
+  const height = Math.max(1, Math.round(frame.bounds.height * MOCK_SCALE));
+  const png = new PNG({ width, height });
+
+  fill(png, 0, height, 255, 255, 255);
+
+  // Children carry heights but all sit at y=0 in the fixture, so bands are laid
+  // out by accumulating them and normalised to the frame's stated height.
+  const bands = frame.children;
+  const total = bands.reduce((sum, band) => sum + Math.max(1, band.bounds.height), 0) || 1;
+
+  let y = 0;
+  for (const band of bands) {
+    const bandHeight = Math.round((Math.max(1, band.bounds.height) / total) * height);
+    const [r, g, b] = parseHex(firstFill(band) ?? "#ffffff");
+    fill(png, y, Math.min(height, y + bandHeight), r, g, b);
+    // A darker rule where one band meets the next, so a flat white page and a
+    // flat white page with six sections in it do not score identically.
+    fill(png, y, Math.min(height, y + 2), Math.max(0, r - 40), Math.max(0, g - 40), Math.max(0, b - 40));
+    y += bandHeight;
+  }
+
+  return new Uint8Array(PNG.sync.write(png));
+}
+
+function fill(png: PNG, fromY: number, toY: number, r: number, g: number, b: number): void {
+  for (let y = Math.max(0, fromY); y < Math.min(png.height, toY); y += 1) {
+    for (let x = 0; x < png.width; x += 1) {
+      const index = (png.width * y + x) << 2;
+      png.data[index] = r;
+      png.data[index + 1] = g;
+      png.data[index + 2] = b;
+      png.data[index + 3] = 255;
+    }
+  }
+}
+
+/** A band's own fill, or the first one any of its contents declares. */
+function firstFill(node: DesignNode): string | null {
+  if (node.fills?.length) return node.fills[0];
+  for (const child of node.children ?? []) {
+    const found = firstFill(child);
+    if (found) return found;
+  }
+  return null;
+}
+
+function parseHex(hex: string): [number, number, number] {
+  const clean = hex.replace("#", "");
+  const full = clean.length === 3 ? clean.replace(/(.)/g, "$1$1") : clean;
+  return [
+    parseInt(full.slice(0, 2), 16) || 0,
+    parseInt(full.slice(2, 4), 16) || 0,
+    parseInt(full.slice(4, 6), 16) || 0,
+  ];
 }

@@ -56,7 +56,17 @@ export interface DesignDocument {
   backend: "mcp" | "rest" | "mock";
   frames: DesignFrame[];
   styles: DesignStyles;
-  /** Rendered PNGs of top-level frames, keyed by node id, when available. */
+  /**
+   * Rendered PNGs of top-level frames, keyed by node id, when available.
+   *
+   * These are stable studio URLs — `/api/projects/:id/assets/:file` — not the
+   * URLs the backend originally got them from. Figma's render endpoint hands
+   * back short-lived S3 links, so anything that reads a design back later (the
+   * fidelity review, which happens after the build) would find them expired.
+   * Passing `projectId` to `fetchDesign` makes the backend download the bytes
+   * and put them in the content-addressed asset store instead, which is also
+   * why the same node re-imported twice costs one file rather than two.
+   */
   images: Record<string, string>;
   /** Non-fatal problems, e.g. a frame that was too deep to fully traverse. */
   warnings: string[];
@@ -69,8 +79,12 @@ export interface FigmaProvider {
    *
    * @param fileKey Figma file key, from the URL: figma.com/design/<key>/...
    * @param nodeId  Optional node to scope the import to a single frame.
+   * @param projectId Project to store frame renders against. Optional because
+   *   not every caller has one (the smoke script, `figmaStatus`), but omitting
+   *   it means `images` comes back empty or holding a URL that will expire —
+   *   pass it from anywhere the import belongs to a project.
    */
-  fetchDesign(fileKey: string, nodeId?: string): Promise<DesignDocument>;
+  fetchDesign(fileKey: string, nodeId?: string, projectId?: string): Promise<DesignDocument>;
 }
 
 /** Parses a Figma URL into a file key and optional node id. */

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { figmaStatus } from "@/lib/providers/figma";
 import { baseSiteStatus } from "@/lib/providers/github";
 import { getStockProvider } from "@/lib/providers/images/stock";
@@ -33,8 +34,33 @@ export interface Capability {
   tools: string[];
 }
 
+/**
+ * Whether the preview can actually be screenshotted.
+ *
+ * The capture drives the Chrome already on the machine rather than downloading
+ * one, so its readiness is a property of the host. Whether the preview host is
+ * *running* cannot be settled without trying it, and this is called on every
+ * capability request — so the binary is what is checked here, and a preview
+ * nobody started surfaces later as `capture.unavailable` on the report itself.
+ */
+function captureStatus(): { ready: boolean; detail: string } {
+  const chromePath = process.env.CHROME_PATH ?? "/usr/bin/google-chrome";
+  const previewOrigin = process.env.PREVIEW_ORIGIN ?? "http://localhost:4200";
+
+  return existsSync(chromePath)
+    ? {
+        ready: true,
+        detail: `Screenshots are taken by driving ${chromePath} against the preview at ${previewOrigin}. If the preview host is not running the report still opens, saying so instead of showing images.`,
+      }
+    : {
+        ready: false,
+        detail: `No browser to screenshot with at ${chromePath} (set CHROME_PATH). The comparison still runs — coverage, order and tokens are exact and need no images — but the administrator will approve without seeing the two side by side.`,
+      };
+}
+
 export function capabilities(): Capability[] {
   const figma = figmaStatus();
+  const capture = captureStatus();
   const base = baseSiteStatus();
   const stock = getStockProvider();
   const research = researchStatus();
@@ -66,6 +92,34 @@ export function capabilities(): Capability[] {
       detail: base.detail,
       requires: ["BASE_SITE_REPO (the approved repository link)", "GITHUB_TOKEN"],
       tools: ["read_base_site", "start_from_base"],
+    },
+    {
+      id: "DESIGN_FIDELITY",
+      name: "Review an imported site against its design",
+      description:
+        "After an imported plan is built, compares the site back against the Figma design band by band — coverage, order and tokens exactly, visual similarity as evidence — and holds the project in review until an administrator approves the comparison. Approval is always the administrator's; the agent can only run the check and fix what it finds.",
+      // Two halves, and only one of them can be demonstrated on stand-in data:
+      // the mock design compares fine, but a screenshot of the preview is only
+      // as real as the design it is being held against. So the mock backend is
+      // demo rather than ready even when the capture works perfectly.
+      state:
+        figma.backend === "mock"
+          ? "demo"
+          : figma.ready && capture.ready
+            ? "ready"
+            : "needs-config",
+      detail:
+        figma.backend === "mock"
+          ? `The demo design is compared against the built site for real; only the design is a stand-in. ${capture.detail}`
+          : figma.ready
+            ? capture.detail
+            : `${figma.detail} Without a real design there is nothing to compare against.`,
+      requires: [
+        "FIGMA_PROVIDER=mcp or =rest (a real design to compare against)",
+        "CHROME_PATH (a browser to screenshot the preview with; the visual evidence only)",
+        "PREVIEW_ORIGIN, running",
+      ],
+      tools: ["review_fidelity", "get_fidelity_report"],
     },
     {
       id: "MODIFY_SITE",

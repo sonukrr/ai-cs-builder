@@ -11,6 +11,7 @@ import {
   Slug,
 } from "./schema";
 import { getComponent, getLayoutSection, getStaticSection, LAYOUT_SECTIONS } from "@/lib/registry";
+import { sanitizeCustomHtml } from "./html";
 
 /**
  * The complete set of edits that can be made to a blueprint.
@@ -280,6 +281,49 @@ function tooDeep(depth: number, height: number): boolean {
   return depth + height - 1 > MAX_SECTION_DEPTH;
 }
 
+/** The one static section whose content is markup rather than copy. */
+const CUSTOM_HTML = "custom-html";
+
+/**
+ * The fourth validation case: markup.
+ *
+ * Replica content is sanitized here, on the way in, so that what lands in the
+ * blueprint is already safe. Sanitizing only at render would mean every future
+ * consumer of a blueprint — the emitter, the fidelity screenshot, an export, a
+ * diff view someone writes next year — has to remember to do it, and the one
+ * that forgets is the one that ships.
+ *
+ * The two outcomes are deliberately different. Unsafe markup is stripped and
+ * reported: the agent wrote something it may not have, the rest of the replica
+ * is still worth having. A form control rejects the whole operation instead,
+ * because quietly deleting an <input> leaves a search bar with no box in it,
+ * the agent believing it built one, and a screenshot that looks convincing.
+ */
+function checkedCustomHtml(
+  sectionId: string,
+  content: Record<string, unknown>,
+): { content: Record<string, unknown>; problem: string | null; dropped: string[] } {
+  const result = sanitizeCustomHtml(sectionId, content);
+  return {
+    content: result.content,
+    problem: result.problems.length > 0 ? result.problems.join(" ") : null,
+    dropped: result.dropped,
+  };
+}
+
+/**
+ * Surfaced in the change line so the agent learns what it may not write.
+ *
+ * Trimmed to a handful: this ends up in the version history an administrator
+ * scrolls, and the agent only needs enough of the pattern to stop repeating it.
+ */
+function removalNote(dropped: string[]): string {
+  if (dropped.length === 0) return "";
+  const shown = dropped.slice(0, 4);
+  const rest = dropped.length - shown.length;
+  return ` — removed from the markup: ${shown.join("; ")}${rest > 0 ? `; and ${rest} more` : ""}`;
+}
+
 /**
  * Applies operations in order, returning a new blueprint.
  *
@@ -429,6 +473,18 @@ export function applyOperations(
           props = LayoutProps.parse({ ...def.defaults, ...operation.props });
         }
 
+        let content = operation.content;
+        let removed: string[] = [];
+        if (operation.type === CUSTOM_HTML) {
+          const checked = checkedCustomHtml(operation.id, operation.content);
+          if (checked.problem) {
+            rejected.push({ operation, reason: checked.problem });
+            break;
+          }
+          content = checked.content;
+          removed = checked.dropped;
+        }
+
         const section = Section.parse({
           id: operation.id,
           type: operation.type,
@@ -436,7 +492,7 @@ export function applyOperations(
           source: operation.source,
           label: labelFor(operation.type, operation.source, operation.label),
           props,
-          content: operation.content,
+          content,
           visible: true,
           children: [],
           origin: { kind: "agent", ref: "", note: "" },
@@ -445,9 +501,9 @@ export function applyOperations(
         const at = operation.index ?? parent.length;
         parent.splice(Math.min(at, parent.length), 0, section);
         changes.push(
-          container
+          (container
             ? `Added "${section.label}" inside "${container.label}"`
-            : `Added "${section.label}" to ${page.name}`,
+            : `Added "${section.label}" to ${page.name}`) + removalNote(removed),
         );
         break;
       }
@@ -583,6 +639,26 @@ export function applyOperations(
         }
         const { section } = found;
 
+        // Markup is checked against the merged result rather than the patch: an
+        // update that touches only `css` still has to be scoped against the
+        // section id, and one that touches only `html` must not be judged
+        // without the credits already stored beside it. Done before anything is
+        // mutated so a rejected replica leaves the section exactly as it was.
+        let customHtml: { content: Record<string, unknown>; dropped: string[] } | null = null;
+        if (section.type === CUSTOM_HTML && operation.content) {
+          const merged: Record<string, unknown> = { ...section.content };
+          for (const [key, value] of Object.entries(operation.content)) {
+            if (value === null) delete merged[key];
+            else merged[key] = value;
+          }
+          const checked = checkedCustomHtml(section.id, merged);
+          if (checked.problem) {
+            rejected.push({ operation, reason: checked.problem });
+            break;
+          }
+          customHtml = { content: checked.content, dropped: checked.dropped };
+        }
+
         if (operation.props) {
           if (section.source === "zm-careers-lib") {
             const component = getComponent(section.type);
@@ -610,9 +686,16 @@ export function applyOperations(
         }
 
         if (operation.content) {
-          for (const [key, value] of Object.entries(operation.content)) {
-            if (value === null) delete section.content[key];
-            else section.content[key] = value;
+          if (customHtml) {
+            // Already merged and sanitized as a whole, so it replaces rather
+            // than merges — a partial write here could pair new markup with the
+            // previous CSS.
+            section.content = customHtml.content;
+          } else {
+            for (const [key, value] of Object.entries(operation.content)) {
+              if (value === null) delete section.content[key];
+              else section.content[key] = value;
+            }
           }
         }
 
@@ -630,7 +713,10 @@ export function applyOperations(
           operation.layout !== undefined && "placement",
           operation.visible !== undefined && (operation.visible ? "shown" : "hidden"),
         ].filter(Boolean);
-        changes.push(`Updated ${what.join(" and ")} on "${section.label}"`);
+        changes.push(
+          `Updated ${what.join(" and ")} on "${section.label}"` +
+            removalNote(customHtml?.dropped ?? []),
+        );
         break;
       }
 

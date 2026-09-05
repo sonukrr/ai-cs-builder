@@ -2,8 +2,28 @@ import { applyOperations, BlueprintOperation } from "@/lib/blueprint/operations"
 import { isBuildable, validateBlueprint } from "@/lib/blueprint/validate";
 import { store } from "@/lib/store/store";
 import { getComponent, getStaticSection } from "@/lib/registry";
+import type { Blueprint, Section } from "@/lib/blueprint/schema";
 
 export const runtime = "nodejs";
+
+/**
+ * Every section on the site, containers and their children alike.
+ *
+ * A page's sections stopped being a flat list when layout containers arrived,
+ * so both callers below have to recurse: ids are unique site-wide including
+ * nested ones, and a section the admin tidied into a row is still deletable.
+ */
+function allSections(blueprint: Blueprint): Section[] {
+  const out: Section[] = [];
+  const walk = (sections: Section[]) => {
+    for (const section of sections) {
+      out.push(section);
+      if (section.children?.length) walk(section.children);
+    }
+  };
+  for (const page of blueprint.pages) walk(page.sections);
+  return out;
+}
 
 /**
  * Adds a section from the catalog, without going through the assistant.
@@ -47,7 +67,7 @@ export async function POST(
 
   // Section ids are unique site-wide, so derive one from the type and suffix it
   // until it is free — the same shape of id the agent produces.
-  const taken = new Set(blueprint.pages.flatMap((page) => page.sections.map((section) => section.id)));
+  const taken = new Set(allSections(blueprint).map((section) => section.id));
   let id = body.type;
   for (let n = 2; taken.has(id); n += 1) id = `${body.type}-${n}`;
 
@@ -100,9 +120,7 @@ export async function DELETE(
   const sectionId = new URL(request.url).searchParams.get("sectionId");
   if (!sectionId) return Response.json({ error: "sectionId is required" }, { status: 400 });
 
-  const existing = blueprint.pages
-    .flatMap((page) => page.sections)
-    .find((section) => section.id === sectionId);
+  const existing = allSections(blueprint).find((section) => section.id === sectionId);
   if (!existing) return Response.json({ error: `No section "${sectionId}"` }, { status: 404 });
 
   const result = applyOperations(blueprint, [{ op: "remove_section", sectionId }]);

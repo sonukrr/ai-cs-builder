@@ -19,10 +19,20 @@
 export const CAREERS = {
   /** Base64 company id — the library decodes it with window.atob. */
   companyId: "MTY4ODE=",
-  /** Base64 of `${domain}` — the library decodes it the same way. */
+  /**
+   * Base64 of `${domain}/manage`, which is exactly what `getCompanyUrl()`
+   * computes for itself off localhost. The `/manage` suffix belongs here and
+   * only here.
+   */
   companyUrl: "dHJpYW56ZGlnaXRhbC5wcmVwcm9kMS5vcGVuaW5ncy5jby9tYW5hZ2U=",
-  /** The career site's own domain, sent as `domain` on every search. */
-  domain: "trianzdigital.preprod1.openings.co/manage",
+  /**
+   * The career site's own host, sent as `domain` on every search — bare, with
+   * no path. `/manage` here is not a harmless extra: the search endpoint
+   * matches the tenant on this string exactly, answers `200` either way, and
+   * returns `data: null` when it does not recognise it, so the job list comes
+   * up empty in live mode with nothing on the console to say why.
+   */
+  domain: "trianzdigital.preprod1.openings.co",
   /** Trailing slash included: the library appends endpoint paths directly. */
   apiEndpoint: "https://apipreprod1.zwayam.com/",
 } as const;

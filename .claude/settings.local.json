@@ -76,7 +76,20 @@
       "Bash(curl -s -X POST http://localhost:3000/api/projects/__TRACKED_VAR__/sections -H 'Content-Type: application/json' -d '{\"pageId\":\"jobs\",\"type\":\"job-filters\",\"source\":\"zm-careers-lib\"}')",
       "Bash(python3 -c \"import sys,json;d=json.load\\(sys.stdin\\);print\\('  version:',d.get\\('version'\\),'| error:',d.get\\('error'\\)\\)\")",
       "Bash(curl -sN -X POST http://localhost:3000/api/agent -H 'Content-Type: application/json' -d '{\"projectId\":\"__CMDSUB_OUTPUT__\",\"message\":\"The sample jobs in the preview are generic engineering roles. We'\\\\''re a UK hospital group. Research and load realistic roles so the filters mean something.\"}' --max-time 500)",
-      "Bash(curl -s http://localhost:3000/api/projects/__CMDSUB_OUTPUT__/dataset)"
+      "Bash(curl -s http://localhost:3000/api/projects/__CMDSUB_OUTPUT__/dataset)",
+      "Read(//Applications/Google Chrome.app/**)",
+      "Bash(lsof -ti:3000 -ti:4200)",
+      "Bash(lsof -nP -iTCP:3000 -sTCP:LISTEN)",
+      "Bash(lsof -nP -iTCP:4200 -sTCP:LISTEN)",
+      "Bash(node /private/tmp/claude-501/-Users-apple-Desktop-ai-cs-builder/a97e6a57-1154-4479-93be-0982491b3f26/scratchpad/probe.mjs ddca238d-5bfa-4b25-bc4a-8ad50f29744c live)",
+      "Bash(node probe.tmp.mjs ddca238d-5bfa-4b25-bc4a-8ad50f29744c live)",
+      "Bash(node probe.tmp.mjs ddca238d-5bfa-4b25-bc4a-8ad50f29744c)",
+      "Bash(echo \"--- exit $?\")",
+      "Bash(node -e ' *)",
+      "Bash(node probe3.tmp.mjs ddca238d-5bfa-4b25-bc4a-8ad50f29744c)",
+      "Bash(node probe4.tmp.mjs ddca238d-5bfa-4b25-bc4a-8ad50f29744c sample)",
+      "Bash(kill 38314)",
+      "Bash(ps -p 37103 -o pid,command)"
     ],
     "additionalDirectories": [
       "/private/tmp"

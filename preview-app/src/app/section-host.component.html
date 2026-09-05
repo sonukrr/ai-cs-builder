@@ -119,6 +119,7 @@
 
       <lib-job-recommendation
         *ngSwitchCase="'job-recommendations'"
+        [jobs]="recommendedJobs"
         [applyBtnText]="prop(section, 'applyBtnText', 'Apply')"
         [limit]="prop(section, 'limit', 6)"
         [horizontalView]="prop(section, 'horizontalView', true)"

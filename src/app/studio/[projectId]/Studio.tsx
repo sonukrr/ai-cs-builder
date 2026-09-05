@@ -52,7 +52,21 @@ interface PreviewSettings {
 
 /** Sections nest, so anything that looks one up has to walk the whole tree. */
 function flattenSections(sections: Section[]): Section[] {
-  return sections.flatMap((section) => [section, ...flattenSections(section.children)]);
+  return sections.flatMap((section) => [section, ...flattenSections(childrenOf(section))]);
+}
+
+/**
+ * `children` as an array, whatever the store handed back.
+ *
+ * The API returns saved blueprints as raw JSON without re-parsing them, so the
+ * schema's `children: []` default has never been applied to anything written
+ * before containers existed — the field is simply absent. Reading it straight
+ * threw here, and because this runs during the studio's first render the whole
+ * page came down with it, taking the preview iframe with it. The Angular host
+ * (`section-host.component.ts`) and the emitter guard the same way.
+ */
+function childrenOf(section: Section): Section[] {
+  return section.children ?? [];
 }
 
 /**
@@ -65,7 +79,7 @@ function layoutSummary(section: Section): string {
     const columns = typeof props.columns === "number" ? props.columns : 2;
     return `Grid · ${columns} column${columns === 1 ? "" : "s"}`;
   }
-  const count = section.children.length;
+  const count = childrenOf(section).length;
   const shape = props.direction === "row" ? "Row" : "Stack";
   return `${shape} · ${count} item${count === 1 ? "" : "s"}`;
 }
@@ -133,9 +147,9 @@ function SectionRows({
             </button>
 
             {isLayout &&
-              (section.children.length > 0 ? (
+              (childrenOf(section).length > 0 ? (
                 <SectionRows
-                  sections={section.children}
+                  sections={childrenOf(section)}
                   depth={depth + 1}
                   selectedSectionId={selectedSectionId}
                   onSelect={onSelect}

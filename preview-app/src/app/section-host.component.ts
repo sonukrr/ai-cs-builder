@@ -7,7 +7,8 @@ import type {
   SectionLayout,
 } from "./blueprint";
 import { isLayoutSection, layoutProps } from "./blueprint";
-import type { PreviewConfig } from "./preview-config";
+import { isMocked, type PreviewConfig } from "./preview-config";
+import { mockRecommendations } from "./mock/mock-data";
 import { ViewportService } from "./viewport.service";
 
 /** start/end are flex-box's flex-start/flex-end; grid accepts both spellings. */
@@ -52,6 +53,27 @@ export class SectionHostComponent {
   @Output() select = new EventEmitter<string>();
 
   constructor(private readonly viewport: ViewportService) {}
+
+  /**
+   * `lib-job-recommendation` takes its rows as an input rather than fetching
+   * them, so the interceptor cannot reach it and the binding is the only place
+   * this section can get data. Held in a field, not a getter: it is bound inside
+   * a template expression that Angular re-evaluates on every change detection
+   * pass, and a getter would hand the component a new array each time and keep
+   * the pass from ever settling.
+   *
+   * Live mode gets an empty list on purpose — the real recommendations come
+   * back from the resume parser once a candidate has uploaded a CV, and showing
+   * the sample roles there would be a live section quietly displaying fixtures.
+   */
+  private recommendations: { jobTitle: string; location: string; jobUrl: string }[] | null = null;
+
+  get recommendedJobs(): { jobTitle: string; location: string; jobUrl: string }[] {
+    if (this.recommendations === null) {
+      this.recommendations = isMocked(this.config.source) ? mockRecommendations() : [];
+    }
+    return this.recommendations;
+  }
 
   get isLayout(): boolean {
     return isLayoutSection(this.section);

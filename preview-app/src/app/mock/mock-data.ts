@@ -190,6 +190,24 @@ export function datasetSize(): number {
   return active.seeds.length;
 }
 
+/**
+ * Rows for `lib-job-recommendation`.
+ *
+ * The only section whose data does not arrive over HTTP: the component takes
+ * its jobs as an `@Input` with no default, so nothing the interceptor answers
+ * can reach it — and reading `jobs.length` on undefined threw on every change
+ * detection pass, which took the whole section down. In the real site the list
+ * comes back from the resume parser after a candidate uploads a CV, so the
+ * preview stands in the loaded dataset: the same roles the job list is showing.
+ */
+export function mockRecommendations(): { jobTitle: string; location: string; jobUrl: string }[] {
+  return active.hits.map((hit) => ({
+    jobTitle: hit._source.jobTitle,
+    location: hit._source.location,
+    jobUrl: hit._source.jobUrl,
+  }));
+}
+
 const DOMAIN = "northwind.preview.local";
 
 /** One entry of `facetedSearchConfig.facets`, in the API's exact field set. */

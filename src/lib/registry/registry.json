@@ -1,0 +1,719 @@
+{
+  "$generatedBy": "scripts/build-registry.mjs",
+  "$source": "zm-careers-lib@2.8.3",
+  "$generatedAt": "2026-09-05",
+  "$note": "Selectors and props are extracted from the compiled .d.ts declarations, which are authoritative. The package README's example markup is stale.",
+  "package": {
+    "name": "zm-careers-lib",
+    "version": "2.8.3",
+    "framework": "angular",
+    "ngModule": "ZmCareerSitesLibModule",
+    "peerDependencies": {
+      "@angular/common": "^15.1.0",
+      "@angular/core": "^15.1.0",
+      "bootstrap": "^5.3.0-alpha3",
+      "ng-recaptcha": "^11.0.0",
+      "ngx-mat-select-search": "^7.0.5"
+    }
+  },
+  "components": [
+    {
+      "id": "apply-confirmation",
+      "name": "Application Confirmation",
+      "blurb": "The thank-you state shown after a candidate submits an application.",
+      "category": "functional",
+      "status": "approved",
+      "package": "zm-careers-lib",
+      "packageVersion": "2.8.3",
+      "framework": "angular",
+      "className": "ApplyConfirmationComponent",
+      "selector": "lib-apply-confirmation",
+      "capabilities": [
+        "confirmation-message"
+      ],
+      "composedBy": [],
+      "props": {
+        "message": {
+          "documented": true,
+          "description": "Confirmation copy shown to the candidate."
+        }
+      },
+      "events": [],
+      "defaults": {
+        "message": "Thanks — we've received your application."
+      }
+    },
+    {
+      "id": "custom-apply",
+      "name": "Apply (Custom Fields)",
+      "blurb": "Application form driven entirely by tenant-configured fields.",
+      "category": "functional",
+      "status": "approved",
+      "package": "zm-careers-lib",
+      "packageVersion": "2.8.3",
+      "framework": "angular",
+      "className": "CustomApplyComponent",
+      "selector": "lib-custom-apply",
+      "capabilities": [
+        "application-form",
+        "custom-fields",
+        "resume-upload"
+      ],
+      "composedBy": [],
+      "props": {
+        "jobs": {
+          "documented": true,
+          "description": "The jobs a candidate may pick from."
+        },
+        "searchBarPlaceholder": {
+          "documented": true,
+          "description": "Placeholder in the job picker."
+        },
+        "noMatchingOptionsText": {
+          "documented": false,
+          "description": ""
+        },
+        "scrollOffset": {
+          "documented": false,
+          "description": ""
+        }
+      },
+      "events": [
+        "jobDetails",
+        "applyResponse",
+        "applyTrigger",
+        "applyDataLoaded",
+        "invalidUpload"
+      ],
+      "defaults": {}
+    },
+    {
+      "id": "filter-chips",
+      "name": "Applied Filters",
+      "blurb": "Chips showing the filters a candidate currently has applied.",
+      "category": "functional",
+      "status": "approved",
+      "package": "zm-careers-lib",
+      "packageVersion": "2.8.3",
+      "framework": "angular",
+      "className": "FilterChipsComponent",
+      "selector": "lib-filter-chips",
+      "capabilities": [
+        "active-filter-display",
+        "remove-filter"
+      ],
+      "composedBy": [],
+      "props": {},
+      "events": [],
+      "defaults": {}
+    },
+    {
+      "id": "find-your-spot",
+      "name": "Find Your Spot",
+      "blurb": "Guided discovery — a candidate uploads a resume and gets matched roles.",
+      "category": "functional",
+      "status": "approved",
+      "package": "zm-careers-lib",
+      "packageVersion": "2.8.3",
+      "framework": "angular",
+      "className": "FindYourSpotComponent",
+      "selector": "lib-find-your-spot",
+      "capabilities": [
+        "guided-discovery",
+        "resume-matching",
+        "recommendations"
+      ],
+      "composedBy": [],
+      "props": {
+        "themeName": {
+          "documented": false,
+          "description": ""
+        },
+        "companyId": {
+          "documented": true,
+          "description": "Tenant identifier used to fetch matches."
+        },
+        "descriptionText": {
+          "documented": true,
+          "description": "Supporting copy under the headline."
+        },
+        "titleText": {
+          "documented": true,
+          "description": "Headline above the guided flow."
+        }
+      },
+      "events": [
+        "recommendedJobsFetchEvent"
+      ],
+      "defaults": {
+        "titleText": "Find your spot"
+      }
+    },
+    {
+      "id": "job-apply",
+      "name": "Apply for a Job",
+      "blurb": "The application form, including resume parsing and screening questions.",
+      "category": "functional",
+      "status": "approved",
+      "package": "zm-careers-lib",
+      "packageVersion": "2.8.3",
+      "framework": "angular",
+      "className": "JobApplyComponent",
+      "selector": "lib-job-apply",
+      "capabilities": [
+        "application-form",
+        "resume-parsing",
+        "screening-questions",
+        "terms-and-conditions",
+        "recaptcha"
+      ],
+      "composedBy": [],
+      "props": {
+        "twoColumnsView": {
+          "documented": true,
+          "description": "Lay the form out in two columns."
+        },
+        "isTncRequired": {
+          "documented": true,
+          "description": "Require the candidate to accept terms and conditions."
+        },
+        "searchBarPlaceholder": {
+          "documented": true,
+          "description": "Placeholder in the job picker inside the form."
+        },
+        "noMatchingOptionsText": {
+          "documented": false,
+          "description": ""
+        }
+      },
+      "events": [
+        "applyDataLoaded",
+        "applyResponse",
+        "jobSuggestions",
+        "invalidUpload",
+        "applyTrigger"
+      ],
+      "defaults": {
+        "isTncRequired": true
+      }
+    },
+    {
+      "id": "job-card",
+      "name": "Job Card",
+      "blurb": "A single job summary card. Usually composed inside a job list.",
+      "category": "functional",
+      "status": "approved",
+      "package": "zm-careers-lib",
+      "packageVersion": "2.8.3",
+      "framework": "angular",
+      "className": "JobComponent",
+      "selector": "lib-job",
+      "capabilities": [
+        "job-summary",
+        "apply-cta"
+      ],
+      "composedBy": [
+        "job-listing"
+      ],
+      "props": {
+        "job": {
+          "documented": true,
+          "description": "The job record to render."
+        },
+        "chipsViewForSkills": {
+          "documented": true,
+          "description": "Render required skills as chips."
+        },
+        "applyBtnText": {
+          "documented": true,
+          "description": "Label on the apply button."
+        },
+        "facetedSearchConfig": {
+          "documented": false,
+          "description": ""
+        },
+        "appearance": {
+          "documented": false,
+          "description": ""
+        },
+        "cardClickable": {
+          "documented": false,
+          "description": ""
+        }
+      },
+      "events": [
+        "jobURL"
+      ],
+      "defaults": {}
+    },
+    {
+      "id": "job-card-elasticsearch",
+      "name": "Job Card (Elasticsearch)",
+      "blurb": "Single job card for Elasticsearch-backed listings.",
+      "category": "functional",
+      "status": "approved",
+      "package": "zm-careers-lib",
+      "packageVersion": "2.8.3",
+      "framework": "angular",
+      "className": "JobEsComponent",
+      "selector": "lib-job-es",
+      "capabilities": [
+        "job-summary",
+        "apply-cta"
+      ],
+      "composedBy": [
+        "job-listing-elasticsearch"
+      ],
+      "props": {
+        "job": {
+          "documented": false,
+          "description": ""
+        },
+        "appearance": {
+          "documented": false,
+          "description": ""
+        },
+        "applyBtnText": {
+          "documented": false,
+          "description": ""
+        },
+        "cardClickable": {
+          "documented": false,
+          "description": ""
+        }
+      },
+      "events": [
+        "jobURL"
+      ],
+      "defaults": {}
+    },
+    {
+      "id": "job-details",
+      "name": "Job Details",
+      "blurb": "The full job description page.",
+      "category": "functional",
+      "status": "approved",
+      "package": "zm-careers-lib",
+      "packageVersion": "2.8.3",
+      "framework": "angular",
+      "className": "JobViewComponent",
+      "selector": "lib-job-view",
+      "capabilities": [
+        "job-detail",
+        "requisition-fields"
+      ],
+      "composedBy": [],
+      "props": {
+        "customReqPossition": {
+          "documented": true,
+          "description": "Where custom requisition fields appear in the layout."
+        }
+      },
+      "events": [
+        "jobViewLoad"
+      ],
+      "defaults": {}
+    },
+    {
+      "id": "job-filters",
+      "name": "Filter Jobs",
+      "blurb": "Faceted filters — department, location, experience and more.",
+      "category": "functional",
+      "status": "approved",
+      "package": "zm-careers-lib",
+      "packageVersion": "2.8.3",
+      "framework": "angular",
+      "className": "FacetsComponent",
+      "selector": "lib-facets",
+      "capabilities": [
+        "faceted-filters",
+        "clear-all",
+        "mobile-popup",
+        "horizontal-layout"
+      ],
+      "composedBy": [],
+      "props": {
+        "label": {
+          "documented": true,
+          "description": "Heading above the filter panel."
+        },
+        "themeName": {
+          "documented": false,
+          "description": ""
+        },
+        "facets": {
+          "documented": false,
+          "description": ""
+        },
+        "config": {
+          "documented": true,
+          "description": "Which facet groups to show, supplied by tenant configuration."
+        },
+        "isPopupRequired": {
+          "documented": true,
+          "description": "Open filters in a modal (recommended on mobile)."
+        },
+        "isHorizontal": {
+          "documented": true,
+          "description": "Lay filters out in a horizontal bar instead of a sidebar."
+        },
+        "manualChangeDetectionRequired": {
+          "documented": false,
+          "description": ""
+        },
+        "width": {
+          "documented": true,
+          "description": "Fixed width for the filter rail."
+        },
+        "isUsedInPopup": {
+          "documented": false,
+          "description": ""
+        },
+        "isClearAll": {
+          "documented": true,
+          "description": "Show a 'clear all filters' action."
+        }
+      },
+      "events": [],
+      "defaults": {
+        "label": "Filters",
+        "isClearAll": true
+      }
+    },
+    {
+      "id": "job-listing",
+      "name": "Browse Jobs",
+      "blurb": "The list of open roles, with an apply action on each card.",
+      "category": "functional",
+      "status": "approved",
+      "package": "zm-careers-lib",
+      "packageVersion": "2.8.3",
+      "framework": "angular",
+      "className": "JobsListComponent",
+      "selector": "lib-jobs-list",
+      "capabilities": [
+        "job-list",
+        "apply-cta",
+        "show-more",
+        "skill-chips"
+      ],
+      "composedBy": [],
+      "props": {
+        "applyBtnText": {
+          "documented": true,
+          "description": "Label on each card's apply button."
+        },
+        "chipsViewForSkills": {
+          "documented": true,
+          "description": "Render required skills as chips."
+        },
+        "showMoreBtn": {
+          "documented": true,
+          "description": "Show a 'load more' button under the list."
+        },
+        "cardClickable": {
+          "documented": true,
+          "description": "Make the whole card open the job, not just the title."
+        }
+      },
+      "events": [
+        "jobURL",
+        "emitApplyData"
+      ],
+      "defaults": {
+        "applyBtnText": "Apply",
+        "cardClickable": true
+      }
+    },
+    {
+      "id": "job-listing-elasticsearch",
+      "name": "Browse Jobs (Elasticsearch)",
+      "blurb": "Job list backed by Elasticsearch, for large job volumes.",
+      "category": "functional",
+      "status": "approved",
+      "package": "zm-careers-lib",
+      "packageVersion": "2.8.3",
+      "framework": "angular",
+      "className": "JobsListEsComponent",
+      "selector": "lib-jobs-list-es",
+      "capabilities": [
+        "job-list",
+        "elasticsearch",
+        "geo-location",
+        "apply-cta"
+      ],
+      "composedBy": [],
+      "props": {
+        "fieldValue": {
+          "documented": false,
+          "description": ""
+        },
+        "job": {
+          "documented": false,
+          "description": ""
+        },
+        "city": {
+          "documented": false,
+          "description": ""
+        },
+        "applyBtnText": {
+          "documented": true,
+          "description": "Label on each card's apply button."
+        },
+        "userGeoLocation": {
+          "documented": true,
+          "description": "Bias results toward the candidate's location."
+        },
+        "departmentName": {
+          "documented": true,
+          "description": "Restrict the list to one department."
+        },
+        "fieldName": {
+          "documented": false,
+          "description": ""
+        },
+        "cardClickable": {
+          "documented": true,
+          "description": "Make the whole card open the job."
+        }
+      },
+      "events": [
+        "jobURL",
+        "emitApplyData"
+      ],
+      "defaults": {
+        "applyBtnText": "Apply"
+      }
+    },
+    {
+      "id": "job-recommendations",
+      "name": "Recommended Jobs",
+      "blurb": "Roles suggested to the candidate, in a row or a grid.",
+      "category": "functional",
+      "status": "approved",
+      "package": "zm-careers-lib",
+      "packageVersion": "2.8.3",
+      "framework": "angular",
+      "className": "JobRecommendationComponent",
+      "selector": "lib-job-recommendation",
+      "capabilities": [
+        "recommendations",
+        "horizontal-carousel",
+        "apply-cta"
+      ],
+      "composedBy": [],
+      "props": {
+        "jobs": {
+          "documented": false,
+          "description": ""
+        },
+        "appearance": {
+          "documented": false,
+          "description": ""
+        },
+        "applyBtnText": {
+          "documented": true,
+          "description": "Label on each apply button."
+        },
+        "limit": {
+          "documented": true,
+          "description": "How many recommendations to show."
+        },
+        "horizontalView": {
+          "documented": true,
+          "description": "Lay recommendations out horizontally."
+        }
+      },
+      "events": [
+        "jobURL"
+      ],
+      "defaults": {
+        "limit": 6,
+        "horizontalView": true
+      }
+    },
+    {
+      "id": "job-search",
+      "name": "Search Jobs",
+      "blurb": "A keyword search box candidates use to find open roles.",
+      "category": "functional",
+      "status": "approved",
+      "package": "zm-careers-lib",
+      "packageVersion": "2.8.3",
+      "framework": "angular",
+      "className": "SearchComponent",
+      "selector": "lib-zm-search",
+      "capabilities": [
+        "keyword-search",
+        "search-button",
+        "results-count"
+      ],
+      "composedBy": [],
+      "props": {
+        "showSearchButton": {
+          "documented": true,
+          "description": "Show an explicit Search button next to the field."
+        },
+        "themeName": {
+          "documented": true,
+          "description": "Named theme variant applied by the library."
+        },
+        "appearance": {
+          "documented": true,
+          "description": "Material form-field appearance: fill | outline."
+        },
+        "placeholder": {
+          "documented": true,
+          "description": "Placeholder text inside the search box."
+        },
+        "label": {
+          "documented": true,
+          "description": "Field label shown above or inside the box."
+        },
+        "showSearchIconInside": {
+          "documented": true,
+          "description": "Render the magnifier inside the input instead."
+        },
+        "searchKeyword": {
+          "documented": true,
+          "description": "Pre-filled search term on first load."
+        }
+      },
+      "events": [
+        "onSearchEvent",
+        "allJobsCount"
+      ],
+      "defaults": {
+        "placeholder": "Search jobs",
+        "showSearchButton": true
+      }
+    },
+    {
+      "id": "pagination",
+      "name": "Page Through Results",
+      "blurb": "Pagination controls under a job list.",
+      "category": "functional",
+      "status": "approved",
+      "package": "zm-careers-lib",
+      "packageVersion": "2.8.3",
+      "framework": "angular",
+      "className": "PaginationComponent",
+      "selector": "lib-pagination",
+      "capabilities": [
+        "pagination",
+        "material-style",
+        "bootstrap-style"
+      ],
+      "composedBy": [],
+      "props": {
+        "currentPage": {
+          "documented": true,
+          "description": "Page to start on."
+        },
+        "themeName": {
+          "documented": false,
+          "description": ""
+        },
+        "materialPagination": {
+          "documented": true,
+          "description": "Use the Material paginator style."
+        },
+        "bootstrapPagination": {
+          "documented": true,
+          "description": "Use the Bootstrap paginator style."
+        }
+      },
+      "events": [
+        "onPageChange"
+      ],
+      "defaults": {
+        "currentPage": 1,
+        "materialPagination": true
+      }
+    },
+    {
+      "id": "recommended-jobs-panel",
+      "name": "Recommended Jobs Panel",
+      "blurb": "The results panel rendered by Find Your Spot.",
+      "category": "functional",
+      "status": "approved",
+      "package": "zm-careers-lib",
+      "packageVersion": "2.8.3",
+      "framework": "angular",
+      "className": "RecommendedJobsComponent",
+      "selector": "lib-recommended-jobs",
+      "capabilities": [
+        "recommendations"
+      ],
+      "composedBy": [
+        "find-your-spot"
+      ],
+      "props": {
+        "recommendedJobs": {
+          "documented": false,
+          "description": ""
+        },
+        "themeName": {
+          "documented": false,
+          "description": ""
+        },
+        "applyBtnText": {
+          "documented": false,
+          "description": ""
+        }
+      },
+      "events": [
+        "resetRecommendedJobsEvent"
+      ],
+      "defaults": {}
+    },
+    {
+      "id": "resume-upload",
+      "name": "Upload Resume",
+      "blurb": "Standalone resume drop zone that parses the file into a profile.",
+      "category": "functional",
+      "status": "approved",
+      "package": "zm-careers-lib",
+      "packageVersion": "2.8.3",
+      "framework": "angular",
+      "className": "UploadResumeComponent",
+      "selector": "lib-upload-resume",
+      "capabilities": [
+        "resume-upload",
+        "resume-parsing"
+      ],
+      "composedBy": [],
+      "props": {
+        "themeName": {
+          "documented": true,
+          "description": "Named theme variant applied by the library."
+        }
+      },
+      "events": [
+        "emitApplyData"
+      ],
+      "defaults": {}
+    },
+    {
+      "id": "tenant-init",
+      "name": "Tenant Bootstrap",
+      "blurb": "Resolves the tenant ID before other components load.",
+      "category": "infrastructure",
+      "status": "internal",
+      "package": "zm-careers-lib",
+      "packageVersion": "2.8.3",
+      "framework": "angular",
+      "className": "InitialComponent",
+      "selector": "init-comp-api",
+      "capabilities": [
+        "tenant-resolution"
+      ],
+      "composedBy": [],
+      "props": {},
+      "events": [
+        "tenentIdCapture"
+      ],
+      "defaults": {}
+    }
+  ]
+}

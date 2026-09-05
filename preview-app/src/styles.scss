@@ -1,0 +1,20 @@
+/* Global reset for the preview frame. Bootstrap and the Material theme are
+   pulled in ahead of this by angular.json, because the library depends on both. */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+body {
+  background: #fff;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The library ships Material form fields at their default density, which is
+   tall enough to dominate a hero. Tighten just enough to sit in a page. */
+.mat-mdc-form-field {
+  width: 100%;
+}

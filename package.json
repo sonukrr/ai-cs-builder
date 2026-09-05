@@ -1,0 +1,31 @@
+{
+  "name": "career-site-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "preview": "sh -c 'cd preview-app && npx ng serve'",
+    "preview:install": "sh -c 'cd preview-app && npm install --legacy-peer-deps'",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "registry:build": "node scripts/build-registry.mjs",
+    "smoke": "node --experimental-strip-types scripts/smoke.mjs",
+    "seed": "node --experimental-strip-types scripts/smoke.mjs --seed"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.124.0",
+    "@modelcontextprotocol/sdk": "^1.21.0",
+    "next": "^15.5.4",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "@types/react": "^19.1.9",
+    "@types/react-dom": "^19.1.7",
+    "typescript": "^5.7.3"
+  }
+}

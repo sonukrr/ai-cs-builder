@@ -1,23 +1,28 @@
 import { z } from "zod";
 import { betaZodTool } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { dataset, JobSeed } from "@/lib/store/dataset";
+import { researchStatus, researchToolNames } from "@/lib/providers/research";
 
 /**
- * Tools for the preview's sample job data.
+ * Tools for the preview's job data.
  *
  * The built-in fixtures are engineering roles in London and Berlin, which makes
  * every demo look like the same company. These let the agent research what a
- * company actually hires for — using the web search it already has — and put
- * *those* roles in the preview instead. A hospital group evaluating their
- * career site should see nursing roles in their own cities.
+ * company actually hires for and put *those* roles in the preview instead. A
+ * hospital group evaluating their career site should see nursing roles in their
+ * own cities.
  *
- * The division of labour matters: the agent gathers with `web_search`, then
- * calls `set_job_data` to persist. This tool does no fetching of its own, so
- * there is exactly one place in the system that reaches the open web.
+ * The division of labour matters: the research tools gather — Tavily's
+ * research_web and read_web_page when a key is configured, the built-in
+ * web_search otherwise — and set_job_data persists. Nothing here fetches
+ * anything, so there is exactly one place in the system that reaches the open
+ * web.
  *
- * What it gathers is factual — role titles, departments, locations, the shape
- * of a hiring plan. Summaries must be written fresh; job descriptions are
- * somebody's copyright and are never reproduced.
+ * What may be gathered is factual: role titles, departments, locations, the
+ * shape of a hiring plan. Summaries are written fresh, because job descriptions
+ * are somebody's copyright and are never reproduced. That rule is repeated in
+ * the tool descriptions below rather than left in this comment, because the
+ * model reads the descriptions and never reads this.
  */
 
 export interface DatasetToolContext {
@@ -25,19 +30,39 @@ export interface DatasetToolContext {
   onActivity: (tool: string, summary: string) => void;
 }
 
+/** Roughly: did the agent record a page it actually read, or a recollection? */
+function looksLikeSource(basedOn: string): boolean {
+  return /^https?:\/\/\S+$/i.test(basedOn.trim());
+}
+
 export function buildDatasetTools(context: DatasetToolContext) {
   const { projectId, onActivity } = context;
+
+  // Named here so the descriptions point at tools this deployment actually
+  // has. Telling the model to call research_web when it was handed web_search
+  // is worse than saying nothing.
+  const research = researchStatus();
+  const tools = researchToolNames();
+  const howToGather =
+    research.backend === "off"
+      ? "Web research is switched off in this deployment, so work from what the administrator tells you about their hiring and say that is where it came from."
+      : `Research the company first with ${tools}, then call this.`;
 
   const getJobData = betaZodTool({
     name: "get_job_data",
     description:
-      "Check what sample job data the preview is currently using for this project.",
+      "Check which jobs the preview is showing for this project — the built-in samples, or roles researched for this company — and where the researched ones came from. Call this before offering to change them.",
     inputSchema: z.object({}),
     run: async () => {
-      onActivity("get_job_data", "Checked the preview's sample job data");
+      onActivity("get_job_data", "Checked the preview's job data");
       const existing = await dataset.get(projectId);
       if (!existing) {
-        return "This project has no researched job data, so the preview shows the built-in sample roles (generic engineering, design and sales positions). Offer to research realistic roles for this company if that would make the preview more useful.";
+        return [
+          "This project has no researched job data, so the preview shows the built-in sample roles: generic engineering, design and sales positions in London and Berlin. They make every company's preview look like the same company.",
+          research.backend === "off"
+            ? "Web research is switched off (ENABLE_RESEARCH=false). You can still replace them with set_job_data using roles the administrator describes."
+            : `You can fix that: find what this company actually hires for with ${tools}, then call set_job_data. Offer it whenever generic roles would obscure the decision the administrator is trying to make.`,
+        ].join("\n");
       }
       const departments = [...new Set(existing.roles.map((role) => role.department))];
       return [
@@ -52,12 +77,16 @@ export function buildDatasetTools(context: DatasetToolContext) {
   const setJobData = betaZodTool({
     name: "set_job_data",
     description:
-      "Replace the preview's sample jobs with roles that fit this company, so filters and listings show something recognisable. Research the company first with web_search, then call this. The preview must be set to 'Researched data' to show them.",
+      "Replace the preview's sample jobs with roles that fit this company, so filters and listings show something recognisable. " +
+      howToGather +
+      " Gather facts only — titles, departments, cities, employment type, seniority. Job description prose is the company's copyright: never paste it here. Every summary is one sentence you write yourself from the facts. The preview must be set to 'Researched data' to show them.",
     inputSchema: z.object({
       companyName: z.string().describe("whose roles these are"),
       basedOn: z
         .string()
-        .describe("where you researched this — a careers site URL, or 'general knowledge of the sector'"),
+        .describe(
+          "the careers page URL you actually read, exactly as the research tool returned it — this is shown to the administrator as the provenance of the data. Only say 'general knowledge of the sector' when research genuinely found nothing.",
+        ),
       roles: z
         .array(
           z.object({
@@ -98,11 +127,19 @@ export function buildDatasetTools(context: DatasetToolContext) {
       const saved = await dataset.save(projectId, { companyName, basedOn, roles: parsed.data });
       onActivity("set_job_data", `Loaded ${saved.roles.length} ${companyName} roles into the preview`);
 
+      // The studio shows basedOn as provenance. When it is not a page anyone
+      // can open, the administrator should hear that from the agent rather
+      // than assume these roles were read off the company's own site.
+      const unsourced = research.backend !== "off" && !looksLikeSource(basedOn);
+
       return [
         `Saved ${saved.roles.length} roles for ${companyName}.`,
         `Departments: ${[...departments].join(", ")}`,
         `Locations: ${[...locations].join(" · ")}`,
         thin.length > 0 ? `Note — the filters will look thin because ${thin.join(" and ")}.` : null,
+        unsourced
+          ? `These are recorded as "${basedOn}" rather than a page you read. Tell the administrator they are representative rather than their actual openings.`
+          : null,
         `Tell the administrator to switch the preview's data source to "Researched" to see them.`,
       ]
         .filter(Boolean)

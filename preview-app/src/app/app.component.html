@@ -1,8 +1,7 @@
 <!--
-  Functional sections render as the genuine zm-careers-lib components, with the
-  blueprint's settings bound onto their real @Input names. This is the same
-  markup the Angular emitter writes for the built site — the difference is only
-  that here it is driven live from the blueprint.
+  The page is a tree, not a list: a section whose source is "layout" owns its
+  own children. SectionHostComponent renders one node of that tree and recurses,
+  so this template only has to hand it the sections sitting directly on the page.
 -->
 
 <div class="preview-status" *ngIf="loading">Loading the site…</div>
@@ -14,125 +13,12 @@
 </div>
 
 <main *ngIf="page" class="page">
-  <div
+  <app-section-host
     *ngFor="let section of visibleSections"
-    class="section"
-    [class.is-selected]="section.id === selectedId"
-    (click)="select(section)"
-    [attr.data-section-id]="section.id"
-    [title]="section.label + ' — click to edit'"
-  >
-    <ng-container [ngSwitch]="section.source === 'zm-careers-lib' ? section.type : '__static'">
-      <!-- Approved functional components -->
-      <lib-zm-search
-        *ngSwitchCase="'job-search'"
-        [showSearchButton]="prop(section, 'showSearchButton', true)"
-        [showSearchIconInside]="prop(section, 'showSearchIconInside', false)"
-        [placeholder]="prop(section, 'placeholder', 'Search jobs')"
-        [label]="prop(section, 'label', '')"
-        [themeName]="prop(section, 'themeName', '')"
-        [appearance]="prop(section, 'appearance', 'outline')"
-        [searchKeyword]="prop(section, 'searchKeyword', '')"
-      ></lib-zm-search>
-
-      <lib-filter-chips *ngSwitchCase="'filter-chips'"></lib-filter-chips>
-
-      <lib-facets
-        *ngSwitchCase="'job-filters'"
-        [label]="prop(section, 'label', 'Filters')"
-        [themeName]="prop(section, 'themeName', '')"
-        [isHorizontal]="prop(section, 'isHorizontal', false)"
-        [isPopupRequired]="prop(section, 'isPopupRequired', false)"
-        [isClearAll]="prop(section, 'isClearAll', true)"
-        [isUsedInPopup]="prop(section, 'isUsedInPopup', false)"
-        [width]="prop(section, 'width', '')"
-      ></lib-facets>
-
-      <lib-jobs-list
-        *ngSwitchCase="'job-listing'"
-        [applyBtnText]="prop(section, 'applyBtnText', 'Apply')"
-        [chipsViewForSkills]="prop(section, 'chipsViewForSkills', true)"
-        [showMoreBtn]="prop(section, 'showMoreBtn', false)"
-        [cardClickable]="prop(section, 'cardClickable', true)"
-      ></lib-jobs-list>
-
-      <lib-jobs-list-es
-        *ngSwitchCase="'job-listing-elasticsearch'"
-        [applyBtnText]="prop(section, 'applyBtnText', 'Apply')"
-        [cardClickable]="prop(section, 'cardClickable', true)"
-        [departmentName]="prop(section, 'departmentName', '')"
-      ></lib-jobs-list-es>
-
-      <lib-pagination
-        *ngSwitchCase="'pagination'"
-        [currentPage]="prop(section, 'currentPage', 1)"
-        [themeName]="prop(section, 'themeName', '')"
-        [materialPagination]="prop(section, 'materialPagination', true)"
-        [bootstrapPagination]="prop(section, 'bootstrapPagination', false)"
-      ></lib-pagination>
-
-      <lib-job-view
-        *ngSwitchCase="'job-details'"
-        [customReqPossition]="prop(section, 'customReqPossition', '')"
-      ></lib-job-view>
-
-      <lib-job-apply
-        *ngSwitchCase="'job-apply'"
-        [twoColumnsView]="prop(section, 'twoColumnsView', false)"
-        [isTncRequired]="prop(section, 'isTncRequired', true)"
-        [searchBarPlaceholder]="prop(section, 'searchBarPlaceholder', 'Search for a role')"
-        [noMatchingOptionsText]="prop(section, 'noMatchingOptionsText', 'No matching roles')"
-      ></lib-job-apply>
-
-      <lib-custom-apply
-        *ngSwitchCase="'custom-apply'"
-        [searchBarPlaceholder]="prop(section, 'searchBarPlaceholder', 'Search for a role')"
-        [noMatchingOptionsText]="prop(section, 'noMatchingOptionsText', 'No matching roles')"
-      ></lib-custom-apply>
-
-      <lib-upload-resume
-        *ngSwitchCase="'resume-upload'"
-        [themeName]="prop(section, 'themeName', '')"
-      ></lib-upload-resume>
-
-      <lib-apply-confirmation
-        *ngSwitchCase="'apply-confirmation'"
-        [message]="prop(section, 'message', 'Thanks — we have received your application.')"
-      ></lib-apply-confirmation>
-
-      <lib-job-recommendation
-        *ngSwitchCase="'job-recommendations'"
-        [applyBtnText]="prop(section, 'applyBtnText', 'Apply')"
-        [limit]="prop(section, 'limit', 6)"
-        [horizontalView]="prop(section, 'horizontalView', true)"
-      ></lib-job-recommendation>
-
-      <lib-find-your-spot
-        *ngSwitchCase="'find-your-spot'"
-        [themeName]="prop(section, 'themeName', '')"
-        [companyId]="prop(section, 'companyId', config.companyId)"
-        [titleText]="prop(section, 'titleText', 'Find your spot')"
-        [descriptionText]="prop(section, 'descriptionText', '')"
-      ></lib-find-your-spot>
-
-      <!-- Presentation sections -->
-      <app-static-section
-        *ngSwitchCase="'__static'"
-        [section]="section"
-        [companyName]="blueprint?.company?.name || ''"
-        [tagline]="blueprint?.company?.tagline || ''"
-        [nav]="blueprint?.nav || []"
-        [studioOrigin]="config.studioOrigin"
-      ></app-static-section>
-
-      <!--
-        A functional type the studio knows about but this template does not yet
-        bind. Says so plainly rather than rendering an empty gap.
-      -->
-      <div *ngSwitchDefault class="unbound">
-        “{{ section.label }}” is an approved component that this preview does not
-        render yet ({{ section.type }}). It will still be emitted into the built site.
-      </div>
-    </ng-container>
-  </div>
+    [section]="section"
+    [selectedId]="selectedId"
+    [blueprint]="blueprint"
+    [config]="config"
+    (select)="select($event)"
+  ></app-section-host>
 </main>

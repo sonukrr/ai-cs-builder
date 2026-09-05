@@ -1,6 +1,7 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { CSSProperties, RefObject } from "react";
 import type { Blueprint, Section } from "@/lib/blueprint/schema";
 
 /**
@@ -565,6 +566,262 @@ function StaticSection({ section, blueprint }: { section: Section; blueprint: Bl
   }
 }
 
+type LayoutDirection = "row" | "column" | "grid";
+
+interface LayoutSettings {
+  direction: LayoutDirection;
+  columns: number;
+  gap: number;
+  align: string;
+  justify: string;
+  wrap: boolean;
+  padding: number;
+  maxWidth: number;
+  background: string;
+  stackBelow: number;
+  reverseOnMobile: boolean;
+}
+
+/** How a section sits inside the container that owns it. */
+interface ParentContext {
+  direction: LayoutDirection;
+  /** The container has collapsed to a single column at this width. */
+  stacked: boolean;
+  /** A collapsed grid reverses its children by `order`; flex uses column-reverse. */
+  reverseStack: boolean;
+  count: number;
+}
+
+const num = (props: Record<string, unknown>, key: string, fallback: number): number => {
+  const value = props[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+};
+
+const ALIGN: Record<string, CSSProperties["alignItems"]> = {
+  start: "flex-start",
+  center: "center",
+  end: "flex-end",
+  stretch: "stretch",
+};
+
+const JUSTIFY: Record<string, CSSProperties["justifyContent"]> = {
+  start: "flex-start",
+  center: "center",
+  end: "flex-end",
+  "space-between": "space-between",
+  "space-around": "space-around",
+};
+
+/**
+ * A layout container carries its settings in `props`, validated against
+ * LayoutProps on the way in. The defaults are repeated here because the props
+ * arrive as a plain record and a blueprint written before a field existed
+ * simply has no value for it.
+ */
+function layoutSettings(section: Section): LayoutSettings {
+  const props = section.props as Record<string, unknown>;
+  const direction = props.direction;
+  return {
+    direction: direction === "row" || direction === "grid" ? direction : "column",
+    columns: Math.min(Math.max(Math.round(num(props, "columns", 2)), 1), 12),
+    gap: num(props, "gap", 24),
+    align: str(props, "align", "stretch"),
+    justify: str(props, "justify", "start"),
+    wrap: props.wrap !== false,
+    padding: num(props, "padding", 0),
+    maxWidth: num(props, "maxWidth", 0),
+    background: str(props, "background"),
+    stackBelow: num(props, "stackBelow", 720),
+    reverseOnMobile: props.reverseOnMobile === true,
+  };
+}
+
+function containerStyle(settings: LayoutSettings, stacked: boolean): CSSProperties {
+  const style: CSSProperties = {
+    gap: settings.gap,
+    alignItems: ALIGN[settings.align] ?? "stretch",
+    justifyContent: JUSTIFY[settings.justify] ?? "flex-start",
+  };
+  if (settings.padding > 0) style.padding = settings.padding;
+  if (settings.maxWidth > 0) {
+    style.maxWidth = settings.maxWidth;
+    style.marginInline = "auto";
+  }
+  if (settings.background) style.background = settings.background;
+
+  if (settings.direction === "grid") {
+    style.display = "grid";
+    style.gridTemplateColumns = stacked ? "1fr" : `repeat(${settings.columns}, minmax(0, 1fr))`;
+    return style;
+  }
+
+  style.display = "flex";
+  if (settings.direction === "row" && !stacked) {
+    style.flexDirection = "row";
+    style.flexWrap = settings.wrap ? "wrap" : "nowrap";
+  } else {
+    style.flexDirection = stacked && settings.reverseOnMobile ? "column-reverse" : "column";
+  }
+  return style;
+}
+
+function placementStyle(
+  section: Section,
+  parent: ParentContext | undefined,
+  index: number,
+): CSSProperties {
+  if (!parent) return {};
+  const placement = section.layout;
+  const style: CSSProperties = {};
+
+  // Without this a flex or grid child will not shrink below its content width,
+  // and the job list — cards with long titles — blows the whole row out.
+  if (parent.direction !== "column") style.minWidth = 0;
+
+  if (!parent.stacked && parent.direction === "row") {
+    // `basis` with no `grow` is how a sidebar is expressed: hold this width and
+    // let the siblings take the slack. Defaulting grow to 1 there would let the
+    // 300px facet column stretch and stop being a facet column.
+    const grow = placement?.grow ?? (placement?.basis ? 0 : 1);
+    style.flex = `${grow} 1 ${placement?.basis ?? "0%"}`;
+  }
+  if (!parent.stacked && parent.direction === "grid" && placement?.span) {
+    style.gridColumn = `span ${placement.span}`;
+  }
+
+  if (placement?.align) style.alignSelf = ALIGN[placement.align];
+  if (typeof placement?.order === "number") style.order = placement.order;
+  else if (parent.reverseStack) style.order = parent.count - index;
+
+  return style;
+}
+
+/**
+ * Does this container have room to stay in a row?
+ *
+ * `stackBelow` is a width breakpoint, and a React inline style cannot hold a
+ * media query. A media query would also be the wrong instrument here: this
+ * renderer lays out inside the studio's own document, where the viewport is the
+ * whole browser window rather than the width the section is actually given — the
+ * mismatch PreviewFrame exists to fix. Measuring the container answers the
+ * question the layout is really asking, and lets the collapsed case be a
+ * different set of styles rather than an override, so `flex-basis: 0` and
+ * `grid-column: span` do not have to be undone.
+ */
+function useStacked(ref: RefObject<HTMLDivElement | null>, stackBelow: number): boolean {
+  const [stacked, setStacked] = useState(false);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || stackBelow <= 0) {
+      setStacked(false);
+      return;
+    }
+    const measure = () => setStacked(element.clientWidth < stackBelow);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref, stackBelow]);
+
+  return stacked;
+}
+
+interface NodeProps {
+  section: Section;
+  blueprint: Blueprint;
+  selectedSectionId?: string;
+  onSelect?: (sectionId: string) => void;
+  parent?: ParentContext;
+  index?: number;
+}
+
+/**
+ * One section — and, when it is a layout container, everything beneath it.
+ *
+ * A container renders as a single element that is both the clickable node and
+ * the flex/grid box. Wrapping the box in a separate selection div would put a
+ * plain block between a grid and its children and break `grid-column: span`.
+ */
+function SectionNode({ section, blueprint, selectedSectionId, onSelect, parent, index = 0 }: NodeProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const settings = section.source === "layout" ? layoutSettings(section) : null;
+  // A column never collapses — it is already one.
+  const stacked = useStacked(containerRef, settings && settings.direction !== "column" ? settings.stackBelow : 0);
+
+  // `?? []` because the store hands blueprints back as raw JSON without
+  // re-parsing, so schema defaults have not been applied to anything saved
+  // before containers existed. The emitter and the Angular host guard the
+  // same way; all three have to survive the same un-defaulted input.
+  const children = (settings ? section.children ?? [] : []).filter((child) => child.visible);
+  const isSelected = section.id === selectedSectionId;
+
+  return (
+    <div
+      ref={containerRef}
+      onClick={(event) => {
+        // Selecting a child must not also select every container above it.
+        event.stopPropagation();
+        onSelect?.(section.id);
+      }}
+      style={{
+        position: "relative",
+        cursor: onSelect ? "pointer" : "default",
+        outline: isSelected ? "2px solid #5b8cff" : "none",
+        outlineOffset: -2,
+        ...placementStyle(section, parent, index),
+        ...(settings ? containerStyle(settings, stacked) : {}),
+      }}
+      title={`${section.label} — click to edit`}
+    >
+      {settings ? (
+        <>
+          {children.map((child, childIndex) => (
+            <SectionNode
+              key={child.id}
+              section={child}
+              blueprint={blueprint}
+              selectedSectionId={selectedSectionId}
+              onSelect={onSelect}
+              parent={{
+                direction: settings.direction,
+                stacked,
+                reverseStack: stacked && settings.reverseOnMobile && settings.direction === "grid",
+                count: children.length,
+              }}
+              index={childIndex}
+            />
+          ))}
+          {children.length === 0 && (
+            // An empty flex or grid box has no height, so there would be nothing
+            // to see or click while the container is still being filled.
+            <div
+              style={{
+                flex: 1,
+                padding: 24,
+                textAlign: "center",
+                fontSize: 13,
+                color: "#9aa5b4",
+                border: "1px dashed #d7dbe0",
+                borderRadius: "var(--r)",
+              }}
+            >
+              {section.label || "Layout"} — empty
+            </div>
+          )}
+        </>
+      ) : section.source === "zm-careers-lib" ? (
+        <>
+          <StandInBadge label={section.label} />
+          <FunctionalSection section={section} blueprint={blueprint} />
+        </>
+      ) : (
+        <StaticSection section={section} blueprint={blueprint} />
+      )}
+    </div>
+  );
+}
+
 export function Preview({ blueprint, pageId, selectedSectionId, onSelect }: Props) {
   const page = blueprint.pages.find((p) => p.id === pageId) ?? blueprint.pages[0];
   if (!page) return null;
@@ -573,34 +830,16 @@ export function Preview({ blueprint, pageId, selectedSectionId, onSelect }: Prop
     <div style={themeVars(blueprint)}>
       {page.sections
         .filter((section) => section.visible)
-        .map((section) => {
-          const isSelected = section.id === selectedSectionId;
-          return (
-            <div
-              key={section.id}
-              onClick={(event) => {
-                event.stopPropagation();
-                onSelect?.(section.id);
-              }}
-              style={{
-                position: "relative",
-                cursor: onSelect ? "pointer" : "default",
-                outline: isSelected ? "2px solid #5b8cff" : "none",
-                outlineOffset: -2,
-              }}
-              title={`${section.label} — click to edit`}
-            >
-              {section.source === "zm-careers-lib" ? (
-                <>
-                  <StandInBadge label={section.label} />
-                  <FunctionalSection section={section} blueprint={blueprint} />
-                </>
-              ) : (
-                <StaticSection section={section} blueprint={blueprint} />
-              )}
-            </div>
-          );
-        })}
+        .map((section, index) => (
+          <SectionNode
+            key={section.id}
+            section={section}
+            blueprint={blueprint}
+            selectedSectionId={selectedSectionId}
+            onSelect={onSelect}
+            index={index}
+          />
+        ))}
       {page.sections.length === 0 && (
         <div style={{ padding: 72, textAlign: "center", color: "#9aa5b4" }}>
           This page has no sections yet. Ask the assistant to add one.

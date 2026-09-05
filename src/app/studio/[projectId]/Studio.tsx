@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import {
   PreviewFrame,
   VIEWPORTS,
@@ -8,7 +8,7 @@ import {
   type ViewportName,
 } from "@/components/preview/PreviewFrame";
 import { ComponentCatalog } from "@/components/studio/ComponentCatalog";
-import type { Blueprint } from "@/lib/blueprint/schema";
+import type { Blueprint, Section } from "@/lib/blueprint/schema";
 
 /**
  * Screen 3 — the Career Site Studio.
@@ -44,11 +44,110 @@ interface ProjectData {
 interface PreviewSettings {
   previewOrigin: string;
   defaultSource: DataSource;
-  apiHost: string;
-  tenantId: string;
-  companyId: string;
-  domain: string;
+  /** Live mode needs no per-project setup: the host carries the tenant identity. */
   liveReady: boolean;
+}
+
+/** Sections nest, so anything that looks one up has to walk the whole tree. */
+function flattenSections(sections: Section[]): Section[] {
+  return sections.flatMap((section) => [section, ...flattenSections(section.children)]);
+}
+
+/**
+ * A layout container is structure, not content, so its row says what shape it
+ * is rather than what it says.
+ */
+function layoutSummary(section: Section): string {
+  const props = section.props as Record<string, unknown>;
+  if (props.direction === "grid") {
+    const columns = typeof props.columns === "number" ? props.columns : 2;
+    return `Grid · ${columns} column${columns === 1 ? "" : "s"}`;
+  }
+  const count = section.children.length;
+  const shape = props.direction === "row" ? "Row" : "Stack";
+  return `${shape} · ${count} item${count === 1 ? "" : "s"}`;
+}
+
+const LAYOUT_GLYPH: Record<string, string> = { row: "⇉", grid: "▦" };
+
+/**
+ * The structure panel's rows, one level of nesting per call.
+ *
+ * Deliberately a list and not a canvas: rearranging is the assistant's job, and
+ * this panel only has to make the nesting legible and every node selectable —
+ * containers included, since they carry settings of their own to edit.
+ */
+function SectionRows({
+  sections,
+  depth,
+  selectedSectionId,
+  onSelect,
+}: {
+  sections: Section[];
+  depth: number;
+  selectedSectionId: string;
+  onSelect: (sectionId: string) => void;
+}) {
+  return (
+    <>
+      {sections.map((section) => {
+        const isLayout = section.source === "layout";
+        const props = section.props as Record<string, unknown>;
+        return (
+          <Fragment key={section.id}>
+            <button
+              className={`section-row ${section.id === selectedSectionId ? "is-selected" : ""}`}
+              onClick={() => onSelect(section.id)}
+              // The class already sets the base 22px; nesting adds to it so a
+              // top-level row still lines up under the page name.
+              style={{ paddingLeft: 22 + depth * 14 }}
+            >
+              <span
+                className={`tag ${isLayout ? "" : section.source === "zm-careers-lib" ? "tag-fn" : "tag-static"}`}
+                style={{ padding: "1px 5px" }}
+              >
+                {isLayout
+                  ? LAYOUT_GLYPH[String(props.direction)] ?? "⇣"
+                  : section.source === "zm-careers-lib"
+                    ? "fn"
+                    : "—"}
+              </span>
+              <span
+                className="label"
+                style={isLayout ? { color: "var(--text-dim)", fontStyle: "italic" } : undefined}
+              >
+                {section.label || (isLayout ? "Layout" : section.type)}
+              </span>
+              {isLayout && (
+                <span className="faint" style={{ fontSize: 11 }}>
+                  {layoutSummary(section)}
+                </span>
+              )}
+              {!section.visible && (
+                <span className="faint" style={{ fontSize: 11 }}>
+                  hidden
+                </span>
+              )}
+            </button>
+
+            {isLayout &&
+              (section.children.length > 0 ? (
+                <SectionRows
+                  sections={section.children}
+                  depth={depth + 1}
+                  selectedSectionId={selectedSectionId}
+                  onSelect={onSelect}
+                />
+              ) : (
+                <div className="faint" style={{ padding: "3px 14px", paddingLeft: 36 + depth * 14, fontSize: 12 }}>
+                  nothing in here yet
+                </div>
+              ))}
+          </Fragment>
+        );
+      })}
+    </>
+  );
 }
 
 const SUGGESTIONS = [
@@ -267,7 +366,7 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
   const errors = data.issues.filter((i) => i.level === "error");
   const warnings = data.issues.filter((i) => i.level === "warning");
   const selectedSection = blueprint?.pages
-    .flatMap((page) => page.sections)
+    .flatMap((page) => flattenSections(page.sections))
     .find((section) => section.id === selectedSectionId);
 
   const currentPage = blueprint?.pages.find((page) => page.id === pageId) ?? blueprint?.pages[0];
@@ -363,22 +462,15 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
                 <strong style={{ color: "var(--text)" }}>{page.name}</strong>
                 <span className="mono faint">{page.path}</span>
               </div>
-              {page.sections.map((section) => (
-                <button
-                  key={section.id}
-                  className={`section-row ${section.id === selectedSectionId ? "is-selected" : ""}`}
-                  onClick={() => {
-                    setPageId(page.id);
-                    setSelectedSectionId(section.id);
-                  }}
-                >
-                  <span className={`tag ${section.source === "zm-careers-lib" ? "tag-fn" : "tag-static"}`} style={{ padding: "1px 5px" }}>
-                    {section.source === "zm-careers-lib" ? "fn" : "—"}
-                  </span>
-                  <span className="label">{section.label}</span>
-                  {!section.visible && <span className="faint" style={{ fontSize: 11 }}>hidden</span>}
-                </button>
-              ))}
+              <SectionRows
+                sections={page.sections}
+                depth={0}
+                selectedSectionId={selectedSectionId}
+                onSelect={(sectionId) => {
+                  setPageId(page.id);
+                  setSelectedSectionId(sectionId);
+                }}
+              />
               {page.sections.length === 0 && (
                 <div className="faint" style={{ padding: "4px 22px", fontSize: 12.5 }}>
                   no sections
@@ -548,10 +640,6 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
               viewport={viewport}
               source={source}
               previewOrigin={settings.previewOrigin}
-              apiHost={settings.apiHost}
-              tenantId={settings.tenantId}
-              companyId={settings.companyId}
-              domain={settings.domain}
               selectedSectionId={selectedSectionId}
               onSelect={setSelectedSectionId}
               reloadKey={previewKey}

@@ -14,7 +14,7 @@ import {
 } from "@/lib/providers/github";
 import { buildImageTools } from "./image-tools";
 import { buildDatasetTools } from "./dataset-tools";
-import type { Blueprint } from "@/lib/blueprint/schema";
+import type { Blueprint, Section } from "@/lib/blueprint/schema";
 
 /**
  * The agent's tools.
@@ -37,6 +37,94 @@ export interface ToolContext {
 
 /** Complex, per-component shapes travel as JSON strings; see analyze.ts. */
 const JSON_NOTE = "a JSON string";
+
+/** Mirrors the LayoutProps defaults, so only configured values are printed. */
+const LAYOUT_DEFAULTS: Record<string, unknown> = {
+  direction: "column",
+  columns: 2,
+  gap: 24,
+  align: "stretch",
+  justify: "start",
+  wrap: true,
+  padding: 0,
+  maxWidth: 0,
+  background: "",
+  stackBelow: 720,
+  reverseOnMobile: false,
+};
+
+/** Blueprints stored before layout containers existed have no `children` key. */
+function childrenOf(section: Section): Section[] {
+  return section.source === "layout" ? section.children ?? [] : [];
+}
+
+function countSections(sections: Section[]): number {
+  return sections.reduce((total, section) => total + 1 + countSections(childrenOf(section)), 0);
+}
+
+/** "row · gap 32 · align start · 2 children" — what the container is and how it is set up. */
+function describeContainer(section: Section): string {
+  const props = section.props as Record<string, unknown>;
+  const direction = typeof props.direction === "string" ? props.direction : "column";
+  const parts: string[] = [direction === "grid" ? `grid ${props.columns ?? LAYOUT_DEFAULTS.columns} columns` : direction];
+
+  parts.push(`gap ${props.gap ?? LAYOUT_DEFAULTS.gap}`);
+  for (const key of ["align", "justify", "wrap", "padding", "maxWidth", "background", "stackBelow", "reverseOnMobile"]) {
+    const value = props[key];
+    if (value === undefined || value === LAYOUT_DEFAULTS[key]) continue;
+    parts.push(`${key} ${value}`);
+  }
+
+  const count = childrenOf(section).length;
+  parts.push(count === 0 ? "EMPTY — nothing inside it" : count === 1 ? "1 child" : `${count} children`);
+  return parts.join(" · ");
+}
+
+/** How a section sits in its parent — blank when it takes the container's default. */
+function describePlacement(section: Section): string {
+  const layout = section.layout as Record<string, unknown> | undefined | null;
+  if (!layout) return "";
+  const parts = (["basis", "grow", "span", "align", "order"] as const)
+    .filter((key) => layout[key] !== undefined)
+    .map((key) => `${key === "align" ? "align-self" : key} ${layout[key]}`);
+  return parts.length > 0 ? ` · ${parts.join(" · ")}` : "";
+}
+
+/**
+ * Sections nest, and this listing is the agent's only view of the structure. An
+ * ambiguous one is why an agent invents section ids or wraps the wrong things:
+ * every line therefore carries its index within its own parent, containers say
+ * what they are and how they are configured, and children say how they sit
+ * inside the container above them.
+ */
+function describeSectionTree(sections: Section[], includeContent: boolean, depth = 0, path = ""): string[] {
+  const lines: string[] = [];
+  const pad = "    " + "  ".repeat(depth);
+
+  sections.forEach((section, index) => {
+    const position = `${path}${index}`;
+    const isContainer = section.source === "layout";
+    // A container is described twice over: what it arranges, and — since
+    // containers nest — how it is itself placed in the container above it.
+    const suffix = isContainer
+      ? ` · ${describeContainer(section)}${describePlacement(section)}`
+      : describePlacement(section);
+    lines.push(
+      `${pad}${position}. ${section.id} — "${section.label}" [${section.type}, ${section.source}]${section.visible ? "" : " (hidden)"}${suffix}`,
+    );
+
+    if (includeContent && !isContainer) {
+      if (Object.keys(section.props).length > 0) lines.push(`${pad}   settings: ${JSON.stringify(section.props)}`);
+      if (Object.keys(section.content).length > 0) {
+        lines.push(`${pad}   content: ${JSON.stringify(section.content).slice(0, 600)}`);
+      }
+    }
+
+    lines.push(...describeSectionTree(childrenOf(section), includeContent, depth + 1, `${position}.`));
+  });
+
+  return lines;
+}
 
 export function buildTools(context: ToolContext) {
   const { projectId, onActivity } = context;
@@ -119,7 +207,7 @@ export function buildTools(context: ToolContext) {
   const getBlueprint = betaZodTool({
     name: "get_blueprint",
     description:
-      "Read the current site blueprint: pages, the sections on each in order, their ids, and the theme. Call this before any edit so you reference real section ids.",
+      "Read the current site blueprint: pages, the section tree on each, their ids, and the theme. Sections nest — a section with source \"layout\" is a container printed with its arrangement, and the sections indented under it are its children, each shown with how it sits in that container. Call this before any edit so you reference real section ids and real containers.",
     inputSchema: z.object({
       includeContent: z
         .boolean()
@@ -132,17 +220,7 @@ export function buildTools(context: ToolContext) {
 
       const pages = blueprint.pages
         .map((page) => {
-          const sections = page.sections
-            .map((section, index) => {
-              const head = `    ${index}. ${section.id} — "${section.label}" [${section.type}, ${section.source}]${section.visible ? "" : " (hidden)"}`;
-              if (!includeContent) return head;
-              const detail = [
-                Object.keys(section.props).length > 0 ? `       settings: ${JSON.stringify(section.props)}` : null,
-                Object.keys(section.content).length > 0 ? `       content: ${JSON.stringify(section.content).slice(0, 600)}` : null,
-              ].filter(Boolean);
-              return [head, ...detail].join("\n");
-            })
-            .join("\n");
+          const sections = describeSectionTree(page.sections, includeContent ?? false).join("\n");
           return `  ${page.id} — "${page.name}" at ${page.path}\n${sections || "    (no sections)"}`;
         })
         .join("\n");
@@ -153,7 +231,7 @@ export function buildTools(context: ToolContext) {
         `Version: ${blueprint.version}`,
         `Theme: primary ${tokens.colors.primary}, secondary ${tokens.colors.secondary}, background ${tokens.colors.background}, text ${tokens.colors.text}, heading font ${tokens.fonts.heading}, radius ${tokens.radius}, buttons ${tokens.buttonStyle}`,
         `Navigation: ${blueprint.nav.map((n) => n.label).join(", ") || "(none)"}`,
-        `Pages:\n${pages}`,
+        `Pages (a section indented under a layout container is inside it; the number is its position within its own parent):\n${pages}`,
         blueprint.unsupportedRequests.length > 0
           ? `Previously requested but unsupported: ${blueprint.unsupportedRequests.map((u) => u.request).join("; ")}`
           : "",
@@ -171,16 +249,22 @@ export function buildTools(context: ToolContext) {
       operationsJson: z
         .string()
         .describe(
-          `${JSON_NOTE} containing an array of operations. Each is one of: ` +
+          `${JSON_NOTE} containing an array of operations. Sections nest: a section with source "layout" is a container that holds children and arranges them as a row, stack or grid; every other section is a leaf. Each operation is one of: ` +
             `{"op":"add_page","id","name","path"} · {"op":"remove_page","pageId"} · ` +
-            `{"op":"add_section","pageId","id","type","source":"zm-careers-lib"|"custom","label","props":{},"content":{},"index"?} · ` +
-            `{"op":"remove_section","sectionId"} · ` +
-            `{"op":"move_section","sectionId","toPageId"?,"beforeSectionId"?|"afterSectionId"?|"index"?} · ` +
-            `{"op":"update_section","sectionId","props"?,"content"?,"label"?,"visible"?} · ` +
+            `{"op":"add_section","pageId","id","type","source":"zm-careers-lib"|"custom"|"layout","label","props":{},"content":{},"parentId"?,"index"?} — parentId puts the new section inside that layout container; omit it or pass "" for the page root. Rejected if parentId names a section that is not a layout container, or if the nesting would go deeper than 4. For source "layout", type is "row" | "stack" | "grid" and props are the layout props below, not component props. · ` +
+            `{"op":"remove_section","sectionId"} — removing a layout container removes everything inside it · ` +
+            `{"op":"move_section","sectionId","toPageId"?,"toParentId"?,"beforeSectionId"?|"afterSectionId"?|"index"?} — toParentId moves the section into that layout container; "" means the page root. beforeSectionId/afterSectionId resolve anywhere in the tree and land the section beside that sibling, inside whatever container the sibling is in. Rejected if it would put a container inside its own subtree or nest deeper than 4. · ` +
+            `{"op":"update_section","sectionId","props"?,"content"?,"label"?,"visible"?,"layout"?} — layout sets how THIS section sits inside its parent: {"span"?,"grow"?,"basis"?,"align"?,"order"?}, or null to clear it. On a layout container, props are layout props. · ` +
+            `{"op":"wrap_sections","id","layoutType":"row"|"stack"|"grid","sectionIds":[...],"label"?,"props"?,"childLayout"?} — the one-step way to rearrange existing sections: creates a container with id at the position of the earliest listed section and moves those sections into it in the order given by sectionIds, so that array order is left-to-right in a row. All listed sections must already share the same parent; otherwise the operation is rejected naming the offenders. childLayout maps each sectionId to that child's layout. · ` +
+            `{"op":"unwrap_section","sectionId"} — dissolves a layout container, leaving its children in its place in the parent. Rejected if the section is not a layout container. · ` +
             `{"op":"update_theme","tokens":{"colors":{...},"radius"?,"buttonStyle"?,...}} · ` +
             `{"op":"update_company","name"?,"tagline"?,"logo"?} · ` +
             `{"op":"set_nav","items":[{"label","pageId"}]} · ` +
-            `{"op":"record_unsupported","request","reason"}`,
+            `{"op":"record_unsupported","request","reason"}` +
+            `\nLayout props, with their defaults: direction "column"|"row"|"grid" ("column"), columns 1-12 (2, grid only), gap 0-96 (24), align "start"|"center"|"end"|"stretch" ("stretch"), justify "start"|"center"|"end"|"space-between"|"space-around" ("start"), wrap true (row only), padding 0-160 (0), maxWidth 0-2560 (0 = full bleed), background hex or "" (""), stackBelow 0-1600 (720 — below this viewport width a row or grid collapses to one column; 0 = never), reverseOnMobile false.` +
+            `\nChild layout: span 1-12 (grid column span), grow 0-12 (share of the leftover space in a row), basis e.g. "300px" or "40%", align, order. In a row, a child with basis and no grow is a fixed-width sidebar, and a child with grow 1 takes the rest; a child that sets neither shares the row equally.` +
+            `\nWorked example — put the facet filter on the left and the job list on the right, in one row: ` +
+            `[{"op":"wrap_sections","id":"jobs-row","layoutType":"row","label":"Jobs","sectionIds":["job-filters","job-listing"],"props":{"gap":32,"align":"start","maxWidth":1200,"padding":24},"childLayout":{"job-filters":{"basis":"300px"},"job-listing":{"grow":1}}}]`,
         ),
       summary: z
         .string()
@@ -329,7 +413,7 @@ export function buildTools(context: ToolContext) {
       });
       await store.updateProject(projectId, { status: "ready" });
       onActivity("approve_plan", `Built the site from the approved plan (version ${version.version})`);
-      return `Built version ${version.version}: ${blueprint.pages.length} page(s), ${blueprint.pages.reduce((n, p) => n + p.sections.length, 0)} sections. The preview is live.`;
+      return `Built version ${version.version}: ${blueprint.pages.length} page(s), ${blueprint.pages.reduce((n, p) => n + countSections(p.sections), 0)} sections. The preview is live.`;
     },
   });
 

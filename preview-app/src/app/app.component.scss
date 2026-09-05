@@ -6,56 +6,14 @@
   font-family: var(--brand-font-body, system-ui, sans-serif);
 }
 
-.section {
-  position: relative;
-  outline: 2px solid transparent;
-  outline-offset: -2px;
-  transition: outline-color 0.12s;
-  cursor: pointer;
-}
-.section:hover {
-  outline-color: rgba(91, 140, 255, 0.4);
-}
-.section.is-selected {
-  outline-color: #5b8cff;
-}
-
-/* The library's components carry their own padding inconsistently, so give the
-   functional ones a predictable band around them. */
-.section > lib-zm-search,
-.section > lib-facets,
-.section > lib-jobs-list,
-.section > lib-jobs-list-es,
-.section > lib-pagination,
-.section > lib-filter-chips,
-.section > lib-upload-resume,
-.section > lib-job-apply,
-.section > lib-custom-apply,
-.section > lib-job-view,
-.section > lib-job-recommendation,
-.section > lib-find-your-spot,
-.section > lib-apply-confirmation {
-  display: block;
-  max-width: 1120px;
-  margin: 0 auto;
-  padding: 28px 32px;
-}
-
 .preview-status,
-.preview-error,
-.unbound {
+.preview-error {
   padding: 40px 32px;
   color: var(--brand-muted, #5b6672);
   font-size: 14px;
 }
 .preview-error {
   color: #b3261e;
-}
-
-.unbound {
-  background: #fff8e5;
-  border-top: 1px solid #f0e0b0;
-  border-bottom: 1px solid #f0e0b0;
 }
 
 /* A quiet badge naming the data source, so nobody mistakes sample jobs for
@@ -75,18 +33,4 @@
   border-radius: 5px;
   padding: 3px 8px;
   pointer-events: none;
-}
-
-@media (max-width: 720px) {
-  .section > lib-zm-search,
-  .section > lib-facets,
-  .section > lib-jobs-list,
-  .section > lib-jobs-list-es,
-  .section > lib-pagination,
-  .section > lib-upload-resume,
-  .section > lib-job-apply,
-  .section > lib-custom-apply,
-  .section > lib-job-view {
-    padding: 20px;
-  }
 }

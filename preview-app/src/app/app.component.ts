@@ -2,16 +2,17 @@ import { Component, ElementRef, OnInit } from "@angular/core";
 import { HttpClient } from "@angular/common/http";
 import type { Blueprint, BlueprintPage, BlueprintSection } from "./blueprint";
 import { themeVariables } from "./blueprint";
-import { readConfig, type PreviewConfig } from "./preview-config";
+import { CAREERS, readConfig, type PreviewConfig } from "./preview-config";
 import { datasetLabel, datasetSize } from "./mock/mock-data";
 
 /**
  * The preview host.
  *
- * Renders one page of a Site Blueprint: functional sections become the real
- * `zm-careers-lib` components (see app.component.html), presentation sections
- * go to StaticSectionComponent. The blueprint arrives from the studio's API, so
- * this app holds no site definition of its own.
+ * Renders one page of a Site Blueprint. The page's sections are a tree —
+ * containers own children — so each top-level section is handed to
+ * SectionHostComponent, which knows how to render one node and recurse. The
+ * blueprint arrives from the studio's API, so this app holds no site definition
+ * of its own.
  *
  * Selection is reported to the studio over postMessage, which is what makes
  * click-to-edit work across the iframe boundary.
@@ -29,6 +30,9 @@ export class AppComponent implements OnInit {
   loading = true;
   selectedId = "";
 
+  // The library's storage keys are seeded in main.ts, before bootstrap —
+  // ServerApiService reads them in its constructor, so setting them here would
+  // already be too late. See preview-config.ts.
   constructor(
     private readonly http: HttpClient,
     private readonly host: ElementRef<HTMLElement>,
@@ -84,9 +88,10 @@ export class AppComponent implements OnInit {
       this.blueprint.pages.find((candidate) => candidate.id === pageId) ?? this.blueprint.pages[0] ?? null;
   }
 
-  select(section: BlueprintSection): void {
-    this.selectedId = section.id;
-    window.parent?.postMessage({ type: "preview:selected", sectionId: section.id }, "*");
+  /** Raised by SectionHostComponent, at any depth of the section tree. */
+  select(sectionId: string): void {
+    this.selectedId = sectionId;
+    window.parent?.postMessage({ type: "preview:selected", sectionId }, "*");
   }
 
   get visibleSections(): BlueprintSection[] {
@@ -101,13 +106,7 @@ export class AppComponent implements OnInit {
 
   get dataSourceDetail(): string {
     return this.config.source === "live"
-      ? `Live careers API at ${this.config.apiHost}`
+      ? `Live careers API at ${CAREERS.apiEndpoint}`
       : datasetLabel();
-  }
-
-  /** Props are validated against the registry studio-side; read them plainly here. */
-  prop(section: BlueprintSection, name: string, fallback: any = undefined): any {
-    const value = section.props?.[name];
-    return value === undefined || value === null ? fallback : value;
   }
 }

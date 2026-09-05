@@ -1,6 +1,7 @@
 import { figmaStatus } from "@/lib/providers/figma";
 import { baseSiteStatus } from "@/lib/providers/github";
 import { getStockProvider } from "@/lib/providers/images/stock";
+import { researchStatus } from "@/lib/providers/research";
 import { hasApiKey } from "./client";
 
 /**
@@ -36,7 +37,7 @@ export function capabilities(): Capability[] {
   const figma = figmaStatus();
   const base = baseSiteStatus();
   const stock = getStockProvider();
-  const research = (process.env.ENABLE_RESEARCH ?? "true").toLowerCase() !== "false";
+  const research = researchStatus();
 
   return [
     {
@@ -104,15 +105,25 @@ export function capabilities(): Capability[] {
     },
     {
       id: "RESEARCH_OR_INSPIRATION",
-      name: "Take inspiration from another site",
+      name: "Research the company and the web",
       description:
-        "On explicit request only, researches a public career site and summarises its structural patterns. Produces an original plan — never copied markup or content.",
-      state: research ? "ready" : "needs-config",
-      detail: research
-        ? "Uses web search, and is only engaged when an administrator asks for it."
-        : "Disabled by ENABLE_RESEARCH=false.",
-      requires: ["ENABLE_RESEARCH=true"],
-      tools: ["web_search"],
+        "Finds what a company actually hires for and loads those roles into the preview, so filters and listings show something recognisable instead of generic samples. On explicit request, also summarises another career site's structural patterns — as an original plan, never copied markup or content.",
+      // Both backends work; they differ in what comes back. Tavily hands the
+      // page text to this process, so a researched dataset can name the URL it
+      // came from. The built-in search cannot, which is a real difference to an
+      // administrator deciding whether to trust the roles on screen.
+      state: research.backend === "tavily" ? "ready" : research.backend === "builtin" ? "demo" : "needs-config",
+      detail: research.detail,
+      requires:
+        research.backend === "off"
+          ? ["ENABLE_RESEARCH=true"]
+          : ["TAVILY_API_KEY (for research whose sources can be cited)"],
+      tools:
+        research.backend === "tavily"
+          ? ["research_web", "read_web_page", "get_job_data", "set_job_data"]
+          : research.backend === "builtin"
+            ? ["web_search", "get_job_data", "set_job_data"]
+            : ["get_job_data", "set_job_data"],
     },
     {
       id: "VERSION_AND_PREVIEW",

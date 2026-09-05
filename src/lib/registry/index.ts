@@ -1,4 +1,5 @@
 import registryJson from "./registry.json";
+import type { LayoutProps } from "@/lib/blueprint/schema";
 
 /**
  * The approved component catalog.
@@ -180,8 +181,47 @@ export const STATIC_SECTIONS: StaticSectionDef[] = [
   },
 ];
 
+/**
+ * Layout containers the renderer owns.
+ *
+ * These are not components in the `zm-careers-lib` sense — they emit no markup
+ * of their own beyond a wrapper element, so they are exempt from the approval
+ * gate. All three are the same container with different LayoutProps defaults;
+ * separate ids exist so the agent can say "row" instead of reasoning about
+ * flex-direction.
+ */
+export interface LayoutSectionDef {
+  id: string;
+  name: string;
+  blurb: string;
+  /** LayoutProps overrides applied when a container of this type is created. */
+  defaults: Partial<LayoutProps>;
+}
+
+export const LAYOUT_SECTIONS: LayoutSectionDef[] = [
+  {
+    id: "row",
+    name: "Row",
+    blurb: "Children side by side, wrapping and stacking on narrow screens.",
+    defaults: { direction: "row" },
+  },
+  {
+    id: "stack",
+    name: "Stack",
+    blurb: "Children one above another, with a shared gap and padding.",
+    defaults: { direction: "column" },
+  },
+  {
+    id: "grid",
+    name: "Grid",
+    blurb: "Children in N equal columns.",
+    defaults: { direction: "grid", columns: 2 },
+  },
+];
+
 const byId = new Map(registry.components.map((c) => [c.id, c]));
 const staticById = new Map(STATIC_SECTIONS.map((s) => [s.id, s]));
+const layoutById = new Map(LAYOUT_SECTIONS.map((s) => [s.id, s]));
 
 export function getComponent(id: string): RegistryComponent | undefined {
   return byId.get(id);
@@ -189,6 +229,10 @@ export function getComponent(id: string): RegistryComponent | undefined {
 
 export function getStaticSection(id: string): StaticSectionDef | undefined {
   return staticById.get(id);
+}
+
+export function getLayoutSection(id: string): LayoutSectionDef | undefined {
+  return layoutById.get(id);
 }
 
 /** Components an administrator is allowed to add. Excludes internal plumbing. */
@@ -246,5 +290,10 @@ export function catalogSummary(): string {
 
   const statics = STATIC_SECTIONS.map((s) => `- ${s.id} — "${s.name}": ${s.blurb}`).join("\n");
 
-  return `APPROVED FUNCTIONAL COMPONENTS (source: ${registry.package.name}@${registry.package.version})\n${functional}\n\nSTATIC SECTIONS (renderer-owned, content only, no functional behaviour)\n${statics}`;
+  const layouts = LAYOUT_SECTIONS.map(
+    (s) =>
+      `- ${s.id} — "${s.name}": ${s.blurb} defaults: ${JSON.stringify(s.defaults)}`,
+  ).join("\n");
+
+  return `APPROVED FUNCTIONAL COMPONENTS (source: ${registry.package.name}@${registry.package.version})\n${functional}\n\nSTATIC SECTIONS (renderer-owned, content only, no functional behaviour)\n${statics}\n\nLAYOUT CONTAINERS (source: "layout" — hold other sections in "children", nest up to 4 deep)\n${layouts}\nContainer props: direction, columns, gap, align, justify, wrap, padding, maxWidth, background, stackBelow, reverseOnMobile. Per-child placement goes on the child's "layout": span, grow, basis, align, order.`;
 }

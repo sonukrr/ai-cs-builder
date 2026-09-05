@@ -1,0 +1,85 @@
+/* The library components this preview binds. Listed once, used by both the
+   full-width band rule and its mobile override. */
+$lib-components: lib-zm-search, lib-filter-chips, lib-facets, lib-jobs-list, lib-jobs-list-es,
+  lib-pagination, lib-job-view, lib-job-apply, lib-custom-apply, lib-upload-resume,
+  lib-apply-confirmation, lib-job-recommendation, lib-find-your-spot;
+
+:host {
+  display: block;
+}
+
+/* Inside a row or grid this element *is* the flex/grid item, so the placement
+   styles the container computes land here. min-width:0 is not optional: a flex
+   item defaults to min-width:auto, and the job list's intrinsic width is wide
+   enough that it would refuse to shrink and push the row past its container. */
+:host(.layout-child) {
+  min-width: 0;
+}
+
+.section {
+  position: relative;
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+  transition: outline-color 0.12s;
+  cursor: pointer;
+}
+.section:hover {
+  outline-color: rgba(91, 140, 255, 0.4);
+}
+.section.is-selected {
+  outline-color: #5b8cff;
+}
+
+/* A container stretched by an outer row should fill the slot it was given, so
+   its background and its own children stretch with it. border-box because the
+   padding prop and the maxWidth prop have to add up to the width the admin
+   asked for, not to that width plus the padding. */
+.section.is-container,
+.layout {
+  height: 100%;
+}
+.layout {
+  box-sizing: border-box;
+}
+
+/* The library's components carry their own padding inconsistently, so give the
+   functional ones a predictable band around them — but only when the section is
+   a full-width band of its own. Inside a container that centring would fight
+   the column it was placed in: a 300px facets column would keep a 32px gutter
+   and a max-width it can never reach. */
+@each $tag in $lib-components {
+  .section > #{$tag} {
+    display: block;
+  }
+  .section:not(.in-layout) > #{$tag} {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 28px 32px;
+  }
+}
+
+.unbound {
+  padding: 40px 32px;
+  color: var(--brand-muted, #5b6672);
+  font-size: 14px;
+  background: #fff8e5;
+  border-top: 1px solid #f0e0b0;
+  border-bottom: 1px solid #f0e0b0;
+}
+
+.layout-empty {
+  margin: 0;
+  padding: 28px 32px;
+  border: 1px dashed rgba(91, 140, 255, 0.5);
+  border-radius: 6px;
+  color: var(--brand-muted, #5b6672);
+  font-size: 13.5px;
+}
+
+@media (max-width: 720px) {
+  @each $tag in $lib-components {
+    .section:not(.in-layout) > #{$tag} {
+      padding: 20px;
+    }
+  }
+}

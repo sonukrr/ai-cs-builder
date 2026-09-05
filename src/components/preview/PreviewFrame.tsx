@@ -43,10 +43,6 @@ export interface PreviewFrameProps {
   source: DataSource;
   /** Where the Angular preview host is served from. */
   previewOrigin: string;
-  apiHost: string;
-  tenantId: string;
-  companyId: string;
-  domain: string;
   selectedSectionId?: string;
   onSelect?: (sectionId: string) => void;
   /** Bumped by the studio to force a reload after the blueprint changes. */
@@ -59,10 +55,6 @@ export function PreviewFrame({
   viewport,
   source,
   previewOrigin,
-  apiHost,
-  tenantId,
-  companyId,
-  domain,
   selectedSectionId,
   onSelect,
   reloadKey = 0,
@@ -73,14 +65,14 @@ export function PreviewFrame({
 
   const device = VIEWPORTS[viewport];
 
-  // Only the parameters the preview host reads at boot belong in the URL.
+  // Only the parameters the preview host reads at boot belong in the URL, and
+  // only what genuinely varies per preview: the careers-API identity is fixed
+  // in the host itself (preview-app/src/app/preview-config.ts), not passed in.
   // Page and selection are pushed over postMessage instead, so changing either
   // does not reload the frame and lose scroll position.
   const src = `${previewOrigin}/?project=${encodeURIComponent(projectId)}&studio=${encodeURIComponent(
     typeof window === "undefined" ? "" : window.location.origin,
-  )}&source=${source}&api=${encodeURIComponent(apiHost)}&tenant=${encodeURIComponent(
-    tenantId,
-  )}&company=${encodeURIComponent(companyId)}&domain=${encodeURIComponent(domain)}&v=${reloadKey}`;
+  )}&source=${source}&v=${reloadKey}`;
 
   // Measure before paint so the frame never flashes at the wrong size.
   useLayoutEffect(() => {

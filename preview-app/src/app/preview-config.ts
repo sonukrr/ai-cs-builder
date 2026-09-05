@@ -1,13 +1,31 @@
 /**
- * Runtime configuration for one preview, read from the iframe's query string.
+ * Runtime configuration for one preview.
  *
  * `zm-careers-lib` is configured through browser storage rather than Angular
  * DI: `ServerApiService` reads `sessionStorage.APIENDPOINTNEW` in its
  * constructor, `DataStoreService` reads `sessionStorage.COMPANYID`, and
- * `EndpointsService.returnTenantHeader()` reads `localStorage.tenantId` on
- * every call. All of that must therefore be in place *before* Angular
- * bootstraps — see main.ts, which is why this module has no Angular imports.
+ * `CommonService` reads `DOMAIN` / `COMPANYURL`. All of that must be in place
+ * *before* Angular bootstraps — see main.ts, which is why this module has no
+ * Angular imports.
+ *
+ * The careers-API identity below is fixed rather than passed in per preview.
+ * Seeding these five keys is the whole contract the library needs to run, so
+ * plumbing them through the iframe URL only added a way to get them wrong.
+ * Only what genuinely varies per preview — which project, which page, sample
+ * or live data — still travels in the query string.
  */
+
+/** Everything the library needs to identify the tenant it is running for. */
+export const CAREERS = {
+  /** Base64 company id — the library decodes it with window.atob. */
+  companyId: "MTY4ODE=",
+  /** Base64 of `${domain}` — the library decodes it the same way. */
+  companyUrl: "dHJpYW56ZGlnaXRhbC5wcmVwcm9kMS5vcGVuaW5ncy5jby9tYW5hZ2U=",
+  /** The career site's own domain, sent as `domain` on every search. */
+  domain: "trianzdigital.preprod1.openings.co/manage",
+  /** Trailing slash included: the library appends endpoint paths directly. */
+  apiEndpoint: "https://apipreprod1.zwayam.com/",
+} as const;
 
 /**
  * Where the library's job data comes from.
@@ -33,17 +51,10 @@ export interface PreviewConfig {
   studioOrigin: string;
   /** mock: the library runs against fixtures. live: against the real API. */
   source: DataSource;
-  /** API host for live mode. */
-  apiHost: string;
-  /** TenantGroupId header value. */
-  tenantId: string;
-  /** Base64-encoded company id — the library decodes it with window.atob. */
+  /** Fixed tenant identity, exposed so templates can bind it. */
   companyId: string;
-  /** The career site's own domain, sent as `domain` on every search. */
   domain: string;
 }
-
-const DEFAULT_API_HOST = "https://apipreprod1.zwayam.com";
 
 /**
  * Where mock mode points the library.
@@ -65,10 +76,8 @@ export function readConfig(search: string): PreviewConfig {
     pageId: params.get("page") ?? "",
     studioOrigin: params.get("studio") ?? "http://localhost:3000",
     source,
-    apiHost: (params.get("api") ?? DEFAULT_API_HOST).replace(/\/+$/, ""),
-    tenantId: params.get("tenant") ?? "",
-    companyId: params.get("company") ?? "",
-    domain: params.get("domain") ?? "",
+    companyId: CAREERS.companyId,
+    domain: CAREERS.domain,
   };
 }
 
@@ -81,26 +90,20 @@ export function readConfig(search: string): PreviewConfig {
  * hostname. That is why the preview must be served from `localhost` rather than
  * `127.0.0.1` — the two are not interchangeable to this check.
  *
- * In mock mode the host is still a syntactically valid URL so the library
- * builds well-formed requests; the interceptor answers them before they leave
- * the browser, so nothing is actually sent.
+ * In mock mode the endpoint is swapped for the sentinel host so the library
+ * still builds well-formed requests; the interceptor answers them before they
+ * leave the browser, so nothing is actually sent. Everything else is identical
+ * in both modes.
  */
 export function applyConfig(config: PreviewConfig): void {
   // MOCK_HOST is the sentinel the interceptor matches on; keep them in step.
-  const host = config.source === "live" ? config.apiHost : MOCK_HOST;
+  const endpoint = isMocked(config.source) ? `${MOCK_HOST}/` : CAREERS.apiEndpoint;
 
-  // The library appends endpoint paths directly, so the host needs its slash.
-  sessionStorage.setItem("APIENDPOINTNEW", `${host}/`);
-  sessionStorage.setItem("TENANTAPIURL", host);
+  sessionStorage.setItem("APIENDPOINT", endpoint);
+  sessionStorage.setItem("APIENDPOINTNEW", endpoint);
+  sessionStorage.setItem("TENANTAPIURL", endpoint.replace(/\/+$/, ""));
 
-  const domain = config.domain || location.hostname;
-  sessionStorage.setItem("DOMAIN", domain);
-  sessionStorage.setItem("COMPANYURL", btoa(`${domain}/manage`));
-
-  // The library logs "Mandatory variables are not set" and skips work when it
-  // has no company. Mock mode has no real tenant, so stand one in that matches
-  // the companyId inside the fixtures.
-  const companyId = config.companyId || (isMocked(config.source) ? btoa("16159") : "");
-  if (companyId) sessionStorage.setItem("COMPANYID", companyId);
-  if (config.tenantId) localStorage.setItem("tenantId", config.tenantId);
+  sessionStorage.setItem("COMPANYID", CAREERS.companyId);
+  sessionStorage.setItem("COMPANYURL", CAREERS.companyUrl);
+  sessionStorage.setItem("DOMAIN", CAREERS.domain);
 }

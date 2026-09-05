@@ -3,9 +3,11 @@ export const runtime = "nodejs";
 /**
  * Settings the studio hands to the Angular preview host.
  *
- * Kept server-side so the API host, tenant and company id come from the
- * environment rather than being hardcoded into the client bundle, and so
- * changing which backend a demo points at is a restart rather than a rebuild.
+ * Only what varies per deployment lives here. The careers-API identity — the
+ * endpoint, company id and domain — is fixed inside the preview host itself
+ * (preview-app/src/app/preview-config.ts), because seeding those storage keys
+ * is the entire contract `zm-careers-lib` needs to run; routing them through
+ * the environment and then the iframe URL only added ways to get them wrong.
  */
 export async function GET() {
   return Response.json({
@@ -15,14 +17,7 @@ export async function GET() {
       const configured = (process.env.PREVIEW_SOURCE ?? "sample").toLowerCase();
       return configured === "live" || configured === "custom" ? configured : "sample";
     })(),
-    apiHost: process.env.CAREERS_API_HOST ?? "https://apipreprod1.zwayam.com",
-    /** TenantGroupId header the library sends. */
-    tenantId: process.env.CAREERS_TENANT_ID ?? "",
-    /** Base64-encoded company id; the library decodes it with window.atob. */
-    companyId: process.env.CAREERS_COMPANY_ID ?? "",
-    /** The career site domain sent as `domain` on every search. */
-    domain: process.env.CAREERS_DOMAIN ?? "",
-    /** Live mode needs a tenant and company; the studio disables it otherwise. */
-    liveReady: Boolean(process.env.CAREERS_TENANT_ID && process.env.CAREERS_COMPANY_ID),
+    /** The host carries its own credentials, so live mode is always offerable. */
+    liveReady: true,
   });
 }

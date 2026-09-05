@@ -84,6 +84,7 @@ hard ceiling on what a single edit can do.
 | Generated component registry | [`src/lib/registry/`](src/lib/registry/) |
 | Figma backends and the band summarizer | [`src/lib/providers/figma/`](src/lib/providers/figma/) |
 | Base site (GitHub) with write guard rails | [`src/lib/providers/github/`](src/lib/providers/github/) |
+| Web research (Tavily) | [`src/lib/providers/research/`](src/lib/providers/research/) |
 | Orchestrator, tools, prompt, capabilities | [`src/lib/agent/`](src/lib/agent/) |
 | Angular emitter | [`src/lib/emit/angular.ts`](src/lib/emit/angular.ts) |
 | Screens | [`src/app/projects/new/`](src/app/projects/new/), [`src/app/plan/`](src/app/plan/), [`src/app/studio/`](src/app/studio/) |
@@ -196,7 +197,7 @@ modes a fair preview rather than a picture of one.
 |---|---|---|
 | **Sample data** | nothing | Built-in fixtures — generic engineering, design and sales roles. |
 | **Researched data** | nothing | Roles the agent researched for *this* company. |
-| **Live careers API** | `CAREERS_TENANT_ID` + `CAREERS_COMPANY_ID` | Real jobs. Disabled until both are set, rather than silently returning nothing. |
+| **Live careers API** | the tenant identity in [`preview-config.ts`](preview-app/src/app/preview-config.ts) | Real jobs, straight from the careers API. |
 
 The middle mode exists because generic sample jobs make every demo look like the
 same company. Ask the assistant — *"we're a UK hospital group, load realistic
@@ -210,8 +211,8 @@ Researched Department: Nursing [5] · Allied Health Professionals [3] · Pharmac
 ```
 
 The agent gathers facts — titles, departments, the cities a company hires in —
-using the `web_search` it already has, and writes every summary fresh. Job
-descriptions are somebody's copyright and are never reproduced.
+with the research tools below, and writes every summary fresh. Job descriptions
+are somebody's copyright and are never reproduced.
 
 Both sample modes are served by an
 [HTTP interceptor](preview-app/src/app/mock/mock-api.interceptor.ts). The
@@ -260,9 +261,36 @@ own tools will work and can say what is missing instead of failing opaquely.
 `MANAGE_IMAGERY` · `RESEARCH_OR_INSPIRATION` · `VERSION_AND_PREVIEW` ·
 `REQUEST_PUBLISH`
 
-Research is engaged only on explicit request — "take inspiration from Rakuten's
-careers site" summarises structural patterns and produces an original plan; it
-never reproduces copy or markup.
+### Research
+
+The agent has one route to the open web, and which one depends on what is
+configured:
+
+| `TAVILY_API_KEY` | Tools | What comes back |
+|---|---|---|
+| set | `research_web`, `read_web_page` | Ranked results and full page text, **inside this process**. A researched dataset can name the careers page it came from, and an administrator can open it. |
+| unset | `web_search` | Anthropic's server-side search. It informs the answer inside the model's turn; the page text never reaches the studio, so researched roles rest on recollection rather than on a citable source. |
+
+Never both at once — two search tools with overlapping descriptions make the
+model deliberate about which to call instead of calling one. `ENABLE_RESEARCH=false`
+removes both and takes the studio entirely off the web; `/api/capabilities` then
+reports the capability as `needs-config` instead of quietly doing nothing.
+
+Tavily is a search API built to be read by a model rather than by a person: it
+returns the passage that answers the query next to the URL it came from, which
+is what makes a researched preview checkable. `read_web_page` exists because a
+search snippet is three sentences and a jobs board is a hundred rows — reading
+the careers page is what actually produces the list of open roles.
+
+What may be gathered is factual: role titles, departments, cities, employment
+type, the shape of a hiring plan. Prose is not, and the rule is stated in the
+tool descriptions the model reads rather than only in the prompt. Job
+descriptions and careers-page copy are somebody's copyright; everything the site
+shows is written fresh from the facts.
+
+Inspiration works the same way and is engaged only on explicit request — "take
+inspiration from Rakuten's careers site" summarises structural patterns and
+produces an original plan; it never reproduces copy or markup.
 
 ### Imagery
 

@@ -62,13 +62,67 @@ export const Brand = z.object({
  * - `base` — a reusable presentation component from the approved base repo.
  * - `custom` — a configurable static section owned by the renderer. Content
  *   only; it can never introduce functional behaviour.
+ * - `layout` — a container that renders nothing of its own and exists only to
+ *   arrange its `children`. It resolves against LAYOUT_SECTIONS, never against
+ *   the component registry, and its `props` are LayoutProps.
  */
-export const SectionSource = z.enum(["zm-careers-lib", "base", "custom"]);
+export const SectionSource = z.enum(["zm-careers-lib", "base", "custom", "layout"]);
 export type SectionSource = z.infer<typeof SectionSource>;
 
-export const SectionCategory = z.enum(["functional", "static", "infrastructure"]);
+export const SectionCategory = z.enum(["functional", "static", "infrastructure", "layout"]);
 
-export const Section = z.object({
+/**
+ * The props of a `source: "layout"` section — the whole vocabulary an admin has
+ * for arranging things.
+ *
+ * Every renderer (React preview, Angular emit, and the studio canvas) derives
+ * its container CSS from exactly these fields, so anything that is not here
+ * cannot be expressed and anything added here has to be honoured in all three.
+ */
+export const LayoutProps = z.object({
+  direction: z.enum(["row", "column", "grid"]).default("column"),
+  /** Grid only. Ignored for row/column. */
+  columns: z.number().int().min(1).max(12).default(2),
+  gap: z.number().min(0).max(96).default(24),
+  align: z.enum(["start", "center", "end", "stretch"]).default("stretch"),
+  justify: z
+    .enum(["start", "center", "end", "space-between", "space-around"])
+    .default("start"),
+  /** Row only. */
+  wrap: z.boolean().default(true),
+  padding: z.number().min(0).max(160).default(0),
+  /** 0 means full bleed — the container does not centre itself. */
+  maxWidth: z.number().min(0).max(2560).default(0),
+  background: z.string().default(""),
+  /** Below this viewport width a row/grid collapses to one column. 0 = never. */
+  stackBelow: z.number().min(0).max(1600).default(720),
+  reverseOnMobile: z.boolean().default(false),
+});
+export type LayoutProps = z.infer<typeof LayoutProps>;
+
+/**
+ * How a section sits inside its parent container.
+ *
+ * This lives on the child rather than as a per-index entry on the container so
+ * that moving a section carries its placement with it — the driving example's
+ * "300px sidebar" stays a 300px sidebar when it is reordered.
+ */
+export const SectionLayout = z.object({
+  /** Grid column span. */
+  span: z.number().int().min(1).max(12).optional(),
+  /** flex-grow inside a row. */
+  grow: z.number().min(0).max(12).optional(),
+  /** flex-basis, e.g. "320px" or "40%". */
+  basis: z.string().optional(),
+  align: z.enum(["start", "center", "end", "stretch"]).optional(),
+  order: z.number().int().optional(),
+});
+export type SectionLayout = z.infer<typeof SectionLayout>;
+
+/** Max nesting depth. A section sitting directly on a page is depth 1. */
+export const MAX_SECTION_DEPTH = 4;
+
+const SectionBase = z.object({
   id: Slug,
   /** Registry component id, or a static section type such as "hero". */
   type: z.string().min(1),
@@ -80,6 +134,9 @@ export const Section = z.object({
   /** Free-form copy for static sections: headline, body, items, image refs. */
   content: z.record(z.string(), z.unknown()).default({}),
   visible: z.boolean().default(true),
+  /** How this section is placed inside its parent container. Root-level
+   * sections have no container, so this is ignored there. */
+  layout: SectionLayout.optional(),
   /**
    * Provenance from an import — which Figma node this came from and how sure
    * the analysis was. Surfaced in the AI Site Plan so admins can audit guesses.
@@ -93,7 +150,30 @@ export const Section = z.object({
     })
     .optional(),
 });
-export type Section = z.infer<typeof Section>;
+
+/**
+ * A section, possibly a container of other sections.
+ *
+ * `children` is defined through zod v4's getter idiom because the type is
+ * self-referential; the explicit `z.ZodType<Section, SectionInput>` annotation
+ * is what stops TypeScript giving up with "implicitly has type 'any' because it
+ * does not have a type annotation" on the circular `.default([])`.
+ *
+ * It defaults to `[]`, which is what keeps every blueprint written before
+ * containers existed parsing unchanged.
+ */
+export interface Section extends z.infer<typeof SectionBase> {
+  /** MUST be empty unless `source === "layout"`. */
+  children: Section[];
+}
+export interface SectionInput extends z.input<typeof SectionBase> {
+  children?: SectionInput[];
+}
+export const Section: z.ZodType<Section, SectionInput> = SectionBase.extend({
+  get children() {
+    return z.array(Section).default([]);
+  },
+});
 
 export const Page = z.object({
   id: Slug,

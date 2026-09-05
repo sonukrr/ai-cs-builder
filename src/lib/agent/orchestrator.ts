@@ -2,6 +2,8 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { anthropic, describeApiError, MODEL } from "./client";
 import { systemPrompt } from "./prompt";
 import { buildTools } from "./tools";
+import { buildResearchTools } from "./research-tools";
+import { researchStatus } from "@/lib/providers/research";
 import { store } from "@/lib/store/store";
 
 /**
@@ -27,10 +29,27 @@ export interface RunInput {
   selection?: { pageId?: string; sectionId?: string };
 }
 
-/** Server-side tools appended when research is enabled. */
-function researchTools() {
-  if ((process.env.ENABLE_RESEARCH ?? "true").toLowerCase() === "false") return [];
-  return [{ type: "web_search_20260209" as const, name: "web_search" as const, max_uses: 5 }];
+/**
+ * Whatever web access this deployment has, expressed as tools.
+ *
+ * Tavily when a key is configured, because its results come back *into this
+ * process*: the dataset tools can quote the URL a role came from, so a
+ * researched preview is checkable. Otherwise Anthropic's server-side search,
+ * which runs inside the model's turn and informs the answer without ever
+ * handing the page text back here.
+ *
+ * Never both. Two search tools with overlapping descriptions make the model
+ * deliberate about which to call instead of calling one.
+ */
+function researchTools(onActivity: (tool: string, summary: string) => void) {
+  switch (researchStatus().backend) {
+    case "tavily":
+      return buildResearchTools({ onActivity });
+    case "builtin":
+      return [{ type: "web_search_20260209" as const, name: "web_search" as const, max_uses: 5 }];
+    default:
+      return [];
+  }
 }
 
 /**
@@ -44,10 +63,10 @@ export async function* runAgent(input: RunInput): AsyncGenerator<AgentEvent> {
   // Buffer activity from tool closures, which run inside the SDK and cannot
   // yield from this generator directly.
   const pending: AgentEvent[] = [];
-  const tools = buildTools({
-    projectId,
-    onActivity: (tool, summary) => pending.push({ type: "activity", tool, summary }),
-  });
+  const onActivity = (tool: string, summary: string) => {
+    pending.push({ type: "activity", tool, summary });
+  };
+  const tools = buildTools({ projectId, onActivity });
 
   const history = await store.getConversation(projectId);
   const versionBefore = (await store.getProject(projectId))?.currentVersion ?? 0;
@@ -81,7 +100,7 @@ export async function* runAgent(input: RunInput): AsyncGenerator<AgentEvent> {
       thinking: { type: "adaptive" },
       output_config: { effort: "high" },
       system: systemPrompt(),
-      tools: [...tools, ...researchTools()],
+      tools: [...tools, ...researchTools(onActivity)],
       messages,
       stream: true,
       max_iterations: 16,
@@ -107,8 +126,12 @@ export async function* runAgent(input: RunInput): AsyncGenerator<AgentEvent> {
         yield event;
       }
 
-      // Web search can pause a turn mid-flight; the runner does not resume it
-      // on its own, so a paused turn would otherwise end the answer silently.
+      // A server-side tool can pause a turn mid-flight, and the runner does not
+      // resume it on its own, so a paused turn would otherwise end the answer
+      // silently. Only the built-in web_search path can land here — a
+      // client-side tool call stops the turn with tool_use, which the runner
+      // already handles — but the guard costs nothing and one of the two paths
+      // is always live.
       if (finalMessage.stop_reason === "pause_turn") {
         runner.pushMessages({ role: "assistant", content: finalMessage.content });
       }

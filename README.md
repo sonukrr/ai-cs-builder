@@ -165,11 +165,62 @@ oversight — an approval the agent can grant itself is not an approval.
 
 ### Figma backends
 
-| `FIGMA_PROVIDER` | Needs | Notes |
-|---|---|---|
-| `mcp` | Figma desktop app, Dev Mode MCP server enabled | Richest — reads the designer's own variables and component names. Discovers the tool list at connect time and matches by intent, because Figma has renamed these tools across releases. |
-| `rest` | `FIGMA_TOKEN` | Works headless and in CI. Derives the palette and type ramp from actual usage rather than published styles, which are often absent. |
-| `mock` (default) | nothing | A plausible careers design. Runs the entire flow, analysis included. |
+| `FIGMA_PROVIDER` | `FIGMA_MCP_URL` | Needs | Notes |
+|---|---|---|---|
+| `mcp` | `http://127.0.0.1:3845/mcp` (default) | Figma desktop app, Dev Mode MCP server enabled | Richest — reads the designer's own variables and component names. Unauthenticated. |
+| `mcp` | `https://mcp.figma.com/mcp` | An OAuth bearer token | Same richness with no desktop app, so this is the MCP option that works headless. See below. |
+| `rest` | — | `FIGMA_TOKEN` | Works headless and in CI. Derives the palette and type ramp from actual usage rather than published styles, which are often absent. |
+| `mock` (default) | — | nothing | A plausible careers design. Runs the entire flow, analysis included. |
+
+Either MCP server discovers the tool list at connect time and matches by
+intent, because Figma has renamed these tools across releases.
+
+#### Authenticating the hosted MCP server
+
+The hosted server is OAuth-only, and the studio cannot get a token by itself:
+
+- A `figd_` personal access token does not work. The server replies
+  `figd_ tokens must be passed via X-Figma-Token header, not Authorization`
+  and then rejects that header too — a valid, fully-scoped PAT still 401s.
+- Dynamic client registration is advertised at
+  `https://api.figma.com/v1/oauth/mcp/register` but returns 403 to the public,
+  so the studio cannot register an OAuth client and run its own login.
+
+So the token has to come from an interactive login done once, elsewhere. Run
+`claude`, connect the `figma` server with `/mcp`, and approve it in the
+browser. Claude Code caches the result — access token, refresh token, and the
+client credentials it registered with — in `~/.claude/.credentials.json`, and
+[`mcp-auth.ts`](src/lib/providers/figma/mcp-auth.ts) reads it from there.
+
+Refreshes are written back to that same file rather than kept private, because
+the refresh token rotates on use: a rotation the studio kept to itself would
+log Claude Code out of Figma. Set `FIGMA_MCP_TOKEN` to bypass the cache and
+supply a token directly, or `CLAUDE_CREDENTIALS_PATH` if the cache is not in
+the default place.
+
+A browser is needed for that one login, but nothing after it — which is the
+difference that matters, since the blocker on a headless box is the desktop
+app, not the browser.
+
+The hosted server also identifies designs differently, which changes what you
+paste into the import box. It takes a **file key** as a required argument
+rather than reading whatever file is open, so the URL must be a `/design/` one
+(`/board/` FigJam and `/slides/` are not supported). A plain file URL works —
+the import lists the document's pages and walks the first few. A node-specific
+URL (**Share -> Copy link** on a frame, which appends `?node-id=…`) is better:
+it scopes the import to that frame and is the only form the variables tool
+accepts, since it has no page-list mode to fall back on.
+
+To check the whole path without needing a file key or a design:
+
+```
+npm run figma:check                                        # hosted server
+FIGMA_MCP_URL=http://127.0.0.1:3845/mcp npm run figma:check  # desktop server
+```
+
+It reports where the token came from and whether the server accepted it, and
+resolves the three tool intents against the live tool list — which is the part
+that silently breaks when Figma renames a tool.
 
 ---
 

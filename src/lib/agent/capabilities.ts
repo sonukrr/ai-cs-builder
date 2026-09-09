@@ -75,10 +75,12 @@ export function capabilities(): Capability[] {
       detail: figma.detail,
       requires:
         figma.backend === "mcp"
-          ? ["Figma desktop app running with the Dev Mode MCP server enabled"]
+          ? figma.transport === "hosted"
+            ? ["An OAuth token for Figma's hosted MCP server (FIGMA_MCP_TOKEN, or the one Claude Code cached)"]
+            : ["Figma desktop app running with the Dev Mode MCP server enabled"]
           : figma.backend === "rest"
             ? ["FIGMA_TOKEN"]
-            : ["FIGMA_PROVIDER=mcp (desktop) or FIGMA_PROVIDER=rest + FIGMA_TOKEN"],
+            : ["FIGMA_PROVIDER=mcp (desktop or hosted) or FIGMA_PROVIDER=rest + FIGMA_TOKEN"],
       tools: ["import_figma"],
     },
     {

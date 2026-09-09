@@ -11,6 +11,7 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "registry:build": "node scripts/build-registry.mjs",
+    "figma:check": "node --experimental-strip-types scripts/figma-mcp-check.mjs",
     "smoke": "node --experimental-strip-types scripts/smoke.mjs",
     "seed": "node --experimental-strip-types scripts/smoke.mjs --seed"
   },

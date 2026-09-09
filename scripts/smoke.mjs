@@ -59,7 +59,7 @@ function check(label, condition, detail = "") {
 
 const { FigmaMockProvider } = await import("../src/lib/providers/figma/mock.ts");
 const { summarizeDesign, renderSummary } = await import("../src/lib/providers/figma/summarize.ts");
-const { planToBlueprint } = await import("../src/lib/agent/analyze.ts");
+const { planToBlueprint, repairPlan } = await import("../src/lib/agent/analyze.ts");
 const { applyOperations } = await import("../src/lib/blueprint/operations.ts");
 const { validateBlueprint, isBuildable } = await import("../src/lib/blueprint/validate.ts");
 const { emitAngularSite, usedComponents } = await import("../src/lib/emit/angular.ts");
@@ -128,6 +128,108 @@ const plan = {
     },
   ],
 };
+
+console.log("\nDesign images -> sections");
+// The importer fetches images band by band, so an image carries the node id of
+// the band it was found in. repairPlan joins that to the band each section came
+// from, which is what makes a generated site arrive dressed.
+const asset = (nodeId, kind, name) => ({
+  url: `/api/projects/p/assets/${name}`,
+  kind,
+  frameId: "1:1",
+  frameName: "Home",
+  format: kind === "svg" ? "svg" : "png",
+  nodeId,
+});
+const designAssets = [
+  asset("1:1", "export", "frame.png"),          // the frame render, never content
+  asset("2:11", "raw", "hero.png"),
+  asset("2:20", "raw", "amara.png"),
+  asset("2:20", "raw", "devi.png"),
+  asset("2:20", "raw", "spare.png"),            // one more than there are items
+  asset("2:30", "svg", "logo.svg"),
+  asset("2:30", "raw", "logo-bitmap.png"),      // a logo wall should prefer the svg
+  asset("2:40", "raw", "orphan.png"),           // band became a component
+];
+const imagePlan = {
+  ...plan,
+  pages: [
+    {
+      id: "home", name: "Home", path: "/", figmaFrameId: "1:1",
+      sections: [
+        { id: "hero", type: "hero", source: "custom", label: "Hero", figmaNodeId: "2:11",
+          rationale: "", confidence: 0.9, propsJson: "{}", contentJson: JSON.stringify({ headline: "Build things" }) },
+        { id: "stories", type: "employee-stories", source: "custom", label: "Stories", figmaNodeId: "2:20",
+          rationale: "", confidence: 0.8, propsJson: "{}", contentJson: JSON.stringify({ items: [{ name: "Amara" }, { name: "Devi" }] }) },
+        { id: "logos", type: "logo-wall", source: "custom", label: "Logos", figmaNodeId: "2:30",
+          rationale: "", confidence: 0.8, propsJson: "{}", contentJson: JSON.stringify({ items: [{ name: "Acme" }] }) },
+        { id: "faq", type: "faq", source: "custom", label: "FAQ", figmaNodeId: "2:50",
+          rationale: "", confidence: 0.7, propsJson: "{}", contentJson: JSON.stringify({ items: [{ q: "Why?", a: "Because." }] }) },
+        { id: "search", type: "job-search", source: "zm-careers-lib", label: "Search", figmaNodeId: "2:40",
+          rationale: "", confidence: 0.9, propsJson: "{}", contentJson: "{}" },
+        // The catalog offers custom-html to the analysis, but a replica's
+        // markup is written later by set_custom_html — so the analysis emits
+        // one with no html, and an empty custom-html section fails validation.
+        { id: "bespoke", type: "custom-html", source: "custom", label: "Stakeholder Tabs", figmaNodeId: "2:60",
+          rationale: "", confidence: 0.6, propsJson: "{}", contentJson: JSON.stringify({ headline: "For every stakeholder" }) },
+        // No css key: the sanitizer supplies one, and the validator demands
+        // that stored content already equal its sanitized form.
+        { id: "authored", type: "custom-html", source: "custom", label: "Authored Replica", figmaNodeId: "2:70",
+          rationale: "", confidence: 0.6, propsJson: "{}", contentJson: JSON.stringify({ html: "<p>real markup</p>" }) },
+        { id: "rejected", type: "custom-html", source: "custom", label: "Illegal Replica", figmaNodeId: "2:80",
+          rationale: "", confidence: 0.6, propsJson: "{}", contentJson: JSON.stringify({ html: "<form><input name=q></form>" }) },
+      ],
+    },
+  ],
+  nav: [{ label: "Home", pageId: "home" }],
+};
+
+const repaired = repairPlan(imagePlan, designAssets);
+const byId = Object.fromEntries(repaired.plan.pages[0].sections.map((s) => [s.id, s]));
+
+check("hero got the image from its own band", byId.hero?.content.image === "/api/projects/p/assets/hero.png", String(byId.hero?.content.image));
+check("hero keeps the copy the model wrote", byId.hero?.content.headline === "Build things");
+check("alt is empty, not invented", byId.hero?.content.imageAlt === "");
+check("one photo per story item, in order",
+  byId.stories?.content.items?.[0]?.photo === "/api/projects/p/assets/amara.png" &&
+  byId.stories?.content.items?.[1]?.photo === "/api/projects/p/assets/devi.png");
+check("logo wall prefers the vector over the bitmap", byId.logos?.content.items?.[0]?.image === "/api/projects/p/assets/logo.svg", String(byId.logos?.content.items?.[0]?.image));
+check("a section type with no image slot is untouched", byId.faq?.content.image === undefined && byId.faq?.content.items?.length === 1);
+check("an approved component carries no static image", Object.keys(byId.search?.content ?? {}).length === 0);
+check("the frame render is never used as content",
+  !JSON.stringify(repaired.plan).includes("frame.png"));
+check("leftover image in a band is reported",
+  repaired.notes.some((n) => n.includes("Stories") && n.includes("left in the asset library")),
+  repaired.notes.find((n) => n.includes("Stories")) ?? "no note");
+check("alt text is flagged for review",
+  repaired.notes.some((n) => n.includes("empty alt text") && n.includes("Hero")));
+check("unplaced images are reported, not lost",
+  repaired.notes.some((n) => n.includes("were not placed")),
+  repaired.notes.find((n) => n.includes("were not placed")) ?? "no note");
+
+check("an empty custom-html band becomes a text block, not an unapprovable plan",
+  byId.bespoke?.type === "rich-text" && byId.bespoke?.content.headline === "For every stakeholder",
+  `${byId.bespoke?.type}`);
+check("a custom-html section that has markup stays one, in sanitized form",
+  byId.authored?.type === "custom-html" && byId.authored?.content.html === "<p>real markup</p>" && byId.authored?.content.css === "",
+  `${byId.authored?.type} css=${JSON.stringify(byId.authored?.content.css)}`);
+check("markup the sanitizer rejects falls back rather than blocking the plan",
+  byId.rejected?.type === "rich-text",
+  `${byId.rejected?.type}`);
+check("the downgrade is reported to the admin",
+  repaired.notes.some((n) => n.includes("Stakeholder Tabs") && n.includes("hand-authored replica")));
+check("the repaired plan actually validates",
+  isBuildable(validateBlueprint(planToBlueprint(repaired.plan, "smoke-project"))),
+  validateBlueprint(planToBlueprint(repaired.plan, "smoke-project")).filter((i) => i.level === "error").map((i) => i.message).join("; ") || "no errors");
+
+// Re-running must not double-fill or overwrite a chosen image.
+const again = repairPlan(
+  { ...imagePlan, pages: [{ ...imagePlan.pages[0], sections: imagePlan.pages[0].sections.map((s) =>
+      s.id === "hero" ? { ...s, contentJson: JSON.stringify({ headline: "Build things", image: "/api/projects/p/assets/chosen.png" }) } : s) }] },
+  designAssets,
+);
+check("an image already chosen is never overwritten",
+  again.plan.pages[0].sections.find((s) => s.id === "hero")?.content.image === "/api/projects/p/assets/chosen.png");
 
 const blueprint = planToBlueprint(plan, "smoke-project");
 check("blueprint built", blueprint.pages.length === 2 && blueprint.pages[0].sections.length === 6);

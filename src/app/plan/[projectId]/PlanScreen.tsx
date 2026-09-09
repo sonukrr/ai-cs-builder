@@ -70,7 +70,22 @@ export function PlanScreen({ projectId, figmaUrl }: { projectId: string; figmaUr
     try {
       const response = await fetch(`/api/projects/${projectId}/plan`, { method: "POST" });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Could not build the site");
+      if (!response.ok) {
+        // The reason is in `issues`, and without it "does not validate" is a
+        // dead end: the admin cannot tell which band is at fault or what to
+        // ask the agent to fix.
+        throw new Error(
+          [
+            data.error ?? "Could not build the site",
+            ...(Array.isArray(data.issues)
+              ? data.issues.map(
+                  (issue: { path?: string; message?: string }) =>
+                    `${issue.path ? `${issue.path}: ` : ""}${issue.message ?? ""}`,
+                )
+              : []),
+          ].join("\n"),
+        );
+      }
       router.push(`/studio/${projectId}`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -81,8 +96,10 @@ export function PlanScreen({ projectId, figmaUrl }: { projectId: string; figmaUr
   if (error) {
     return (
       <main className="plan">
-        <h1>Import failed</h1>
-        <div className="notice" style={{ borderLeftColor: "var(--bad)" }}>{error}</div>
+        <h1>{result ? "Could not build the site" : "Import failed"}</h1>
+        <div className="notice" style={{ borderLeftColor: "var(--bad)", whiteSpace: "pre-line" }}>
+          {error}
+        </div>
         <p style={{ marginTop: 20 }}>
           <a href="/projects/new">Back to the start</a>
         </p>

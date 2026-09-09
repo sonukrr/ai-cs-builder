@@ -3,8 +3,10 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { anthropic, MODEL } from "./client";
 import { catalogSummary, getComponent, getStaticSection } from "@/lib/registry";
 import { renderSummary, summarizeDesign } from "@/lib/providers/figma/summarize";
-import type { DesignDocument } from "@/lib/providers/figma/types";
+import type { DesignAsset, DesignDocument } from "@/lib/providers/figma/types";
+import { IMAGE_SLOTS } from "@/lib/providers/images/types";
 import { Blueprint, DesignTokens } from "@/lib/blueprint/schema";
+import { sanitizeCustomHtml } from "@/lib/blueprint/html";
 
 /**
  * Step 2-5 of the Figma import: turn a compressed design into an AI Site Plan.
@@ -134,6 +136,94 @@ export interface AnalyzeResult {
   plan: SitePlan;
   /** Sections dropped because they failed registry validation, with why. */
   dropped: { section: string; reason: string }[];
+  /**
+   * Things the admin should see but that did not stop anything being built —
+   * chiefly which auto-filled images still need alt text, and which of the
+   * design's images had nowhere to go.
+   */
+  notes: string[];
+}
+
+/**
+ * Puts the design's own images into the sections their bands became.
+ *
+ * This is the step that makes an import produce a dressed site rather than one
+ * with holes in it. The band a section came from is recorded on
+ * `figmaNodeId`, and the importer fetched images band by band, so the two join
+ * directly: a photograph found inside the band that became the hero is the
+ * hero's photograph.
+ *
+ * Alt text is deliberately left empty. What is known is the file and the band
+ * it came from; what it depicts is not, and inventing a description is worse
+ * than admitting there isn't one — an empty alt at least reads as decorative
+ * rather than as a wrong claim. Every section filled this way is named in a
+ * note so the alt text gets written before anyone publishes.
+ */
+function attachDesignImages(
+  section: { type: string; label: string; figmaNodeId: string },
+  content: Record<string, unknown>,
+  assets: DesignAsset[],
+  notes: string[],
+  needsAlt: string[],
+): Record<string, unknown> {
+  const slot = IMAGE_SLOTS[section.type];
+  if (!slot || !section.figmaNodeId) return content;
+
+  // A logo wall wants the vectors; everything else wants the photographs.
+  const inBand = assets.filter(
+    (asset) => asset.kind !== "export" && asset.nodeId === section.figmaNodeId,
+  );
+  const preferred = section.type === "logo-wall" ? "svg" : "raw";
+  const pool = [
+    ...inBand.filter((asset) => asset.kind === preferred),
+    ...inBand.filter((asset) => asset.kind !== preferred),
+  ];
+  if (pool.length === 0) return content;
+
+  const next = { ...content };
+  const items = Array.isArray(next.items) ? [...(next.items as unknown[])] : null;
+
+  // A section with a list takes one image per item; everything else takes one.
+  if (items && items.length > 0) {
+    const fillable = Math.min(items.length, pool.length);
+    for (let index = 0; index < fillable; index += 1) {
+      const item = items[index];
+      if (typeof item !== "object" || item === null) continue;
+      const record = item as Record<string, unknown>;
+      // Never overwrite an image the model or an admin already chose.
+      if (typeof record[slot.key] === "string" && record[slot.key]) continue;
+      items[index] = { ...record, [slot.key]: pool[index].url, [`${slot.key}Alt`]: "" };
+      needsAlt.push(`${section.label} (item ${index + 1})`);
+    }
+    next.items = items;
+
+    if (pool.length > items.length) {
+      notes.push(
+        `“${section.label}” has ${items.length} item(s) but its band held ${pool.length} images; ${
+          pool.length - items.length === 1
+            ? "1 was"
+            : `${pool.length - items.length} were`
+        } left in the asset library for you to place.`,
+      );
+    } else if (items.length > pool.length) {
+      notes.push(
+        `“${section.label}” has ${items.length} item(s) and its band held only ${pool.length} image(s); the rest have no picture yet.`,
+      );
+    }
+    return next;
+  }
+
+  if (typeof next[slot.key] === "string" && next[slot.key]) return next;
+  next[slot.key] = pool[0].url;
+  next[`${slot.key}Alt`] = "";
+  needsAlt.push(section.label);
+
+  if (pool.length > 1) {
+    notes.push(
+      `“${section.label}” takes one image and its band held ${pool.length}; the other ${pool.length - 1} were left in the asset library.`,
+    );
+  }
+  return next;
 }
 
 /** Runs the semantic analysis and repairs anything that violates the registry. */
@@ -158,7 +248,7 @@ export async function analyzeDesign(design: DesignDocument): Promise<AnalyzeResu
     throw new Error("The design analysis did not return a usable site plan. Try importing again.");
   }
 
-  return repairPlan(plan);
+  return repairPlan(plan, design.assets ?? []);
 }
 
 /**
@@ -169,8 +259,17 @@ export async function analyzeDesign(design: DesignDocument): Promise<AnalyzeResu
  * the blueprint, because a plan the admin approves must be one we can actually
  * build.
  */
-function repairPlan(plan: SitePlan): AnalyzeResult {
+/**
+ * Exported for `scripts/smoke.mjs`, which exercises it without a model call —
+ * everything here is deterministic, and the image attachment in particular is
+ * worth a test rather than a hope.
+ */
+export function repairPlan(plan: SitePlan, assets: DesignAsset[]): AnalyzeResult {
   const dropped: AnalyzeResult["dropped"] = [];
+  const notes: string[] = [];
+  // Collected across the whole plan so the alt-text reminder is one line, not
+  // one per picture.
+  const needsAlt: string[] = [];
   const usedIds = new Set<string>();
 
   const slug = (value: string, fallback: string) => {
@@ -230,14 +329,58 @@ function repairPlan(plan: SitePlan): AnalyzeResult {
           reason: `unknown section type "${section.type}"; kept as a text block`,
         });
       }
+      let type = staticDef ? section.type : "rich-text";
+      let parsedContent = parseJsonObject(section.contentJson);
+      const id = slug(section.id || section.type, `${pageId}-section`);
+
+      /*
+       * The catalog offers "custom-html" to the analysis, but a replica's
+       * markup belongs to set_custom_html, where the sanitizer runs. So the
+       * analysis emits the section without markup — and an empty custom-html
+       * section is a validation error, which made the whole plan unapprovable.
+       *
+       * Both ways out are taken here. With no markup the band becomes a text
+       * block, keeping the design's copy and staying upgradable to a replica
+       * later. With markup, it is put through the sanitizer now, because the
+       * validator requires stored markup to already equal its sanitized form
+       * — that is what stops markup reaching the blueprint around
+       * apply_operations, and analyzer output has to satisfy it like anything
+       * else.
+       */
+      if (type === "custom-html") {
+        const markup = String(parsedContent.html ?? "").trim();
+        const clean = markup ? sanitizeCustomHtml(id, parsedContent) : null;
+
+        if (!markup || !clean || clean.problems.length > 0) {
+          type = "rich-text";
+          notes.push(
+            `“${section.label || "A band"}” was read as a bespoke design band, which needs a hand-authored replica. It is a text block for now, carrying the design's copy — ask the agent to replicate it, and it will rebuild the band from the design.${
+              clean && clean.problems.length > 0 ? ` (Its draft markup was rejected: ${clean.problems.join("; ")})` : ""
+            }`,
+          );
+        } else {
+          parsedContent = clean.content;
+        }
+      }
+
+      const label = section.label || staticDef?.name || "Text Block";
       return [
         {
           ...section,
-          type: staticDef ? section.type : "rich-text",
-          id: slug(section.id || section.type, `${pageId}-section`),
-          label: section.label || staticDef?.name || "Text Block",
+          type,
+          id,
+          label,
           props: {},
-          content: parseJsonObject(section.contentJson),
+          // The design's own images go in here, so what the admin approves on
+          // the plan screen is the dressed section rather than an empty frame
+          // that someone has to remember to fill in later.
+          content: attachDesignImages(
+            { type, label, figmaNodeId: section.figmaNodeId },
+            parsedContent,
+            assets,
+            notes,
+            needsAlt,
+          ),
         },
       ];
     });
@@ -248,7 +391,47 @@ function repairPlan(plan: SitePlan): AnalyzeResult {
   const pageIds = new Set(pages.map((p) => p.id));
   const nav = plan.nav.filter((item) => pageIds.has(item.pageId));
 
-  return { plan: { ...plan, pages: pages as SitePlan["pages"], nav }, dropped };
+  if (needsAlt.length > 0) {
+    const shown = needsAlt.slice(0, 6).join(", ");
+    notes.push(
+      `${needsAlt.length} image(s) were taken from the design and placed automatically, with empty alt text: ${shown}${
+        needsAlt.length > 6 ? `, and ${needsAlt.length - 6} more` : ""
+      }. The importer knows which band each came from but not what it shows — write real alt text before publishing, or ask the agent to.`,
+    );
+  }
+
+  // Images the design carried that no section claimed. They are in the asset
+  // library either way, so this is a pointer rather than a loss.
+  const placed = new Set(
+    pages.flatMap((page) =>
+      page.sections.flatMap((section) => {
+        const content = (section as { content?: Record<string, unknown> }).content ?? {};
+        const urls = Object.values(content).filter(
+          (value): value is string => typeof value === "string" && value.startsWith("/api/projects/"),
+        );
+        const items = Array.isArray(content.items) ? (content.items as unknown[]) : [];
+        return [
+          ...urls,
+          ...items.flatMap((item) =>
+            item && typeof item === "object"
+              ? Object.values(item as Record<string, unknown>).filter(
+                  (value): value is string =>
+                    typeof value === "string" && value.startsWith("/api/projects/"),
+                )
+              : [],
+          ),
+        ];
+      }),
+    ),
+  );
+  const unplaced = assets.filter((asset) => asset.kind !== "export" && !placed.has(asset.url)).length;
+  if (unplaced > 0) {
+    notes.push(
+      `${unplaced} of the design's images were not placed — either their band became a component, which carries its own imagery, or the section they belong to takes no image. They are in this project's asset library for the agent to use.`,
+    );
+  }
+
+  return { plan: { ...plan, pages: pages as SitePlan["pages"], nav }, dropped, notes };
 }
 
 function parseJsonObject(input: string): Record<string, unknown> {

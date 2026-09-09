@@ -110,14 +110,80 @@ This is the path built out most deeply. Six stages, in
    Layer names in real files are meaningless (`Frame 12`, `Group 47`), so the
    demo fixture is deliberately named that way too — the analysis has to work
    from the text and the structure, not from labels containing the answer.
-4. **Repair against the registry.** A band mapped to a component that does not
-   exist is dropped, not passed through. Props the component does not declare
-   are stripped. Ids are made unique.
+4. **Repair against the registry, and dress the static sections.** A band
+   mapped to a component that does not exist is dropped, not passed through.
+   Props the component does not declare are stripped. Ids are made unique. Then
+   the design's own images are attached to the sections their bands became —
+   see below.
+
+   One repair is worth naming because it is a contradiction between two
+   otherwise-correct rules. The catalog offers `custom-html` to the analysis,
+   but a replica's markup belongs to `set_custom_html`, where the sanitizer
+   runs — so the analysis emits the section with no markup, and an empty
+   `custom-html` section is a *validation error*. Left alone, an import that
+   read any band as bespoke produced a plan that could never be approved. Such
+   a band now becomes a text block carrying the design's copy, with a note
+   saying it is a replica candidate; markup that does arrive is put through the
+   sanitizer here, since the validator requires stored markup to already equal
+   its sanitized form.
 5. **Approve.** The plan screen shows every section, why it was read that way and
    how confident the model was. Nothing is built until an administrator approves.
 6. **Design fidelity review.** The built site is compared back against the design
    it came from, and the project stays closed until a human signs the comparison
    off. Below.
+
+### Where the images come from
+
+Approved components bring their own imagery. Everything else — hero, culture,
+media, employee stories, teams, locations, logo wall — has an image slot, and
+until it is filled the generated site has a hole in it.
+
+The importer fills it. Images are fetched **band by band** rather than per
+frame, which is the detail that makes this work: Figma's asset tool reports the
+images found anywhere in a node's subtree, so asking about a frame returns every
+picture on the page with no way to tell them apart, while asking about a band
+returns that band's images. A section records the band it came from
+(`origin.ref`), so the two join directly, in `repairPlan`:
+
+- one image per section, or one per item for the list-shaped types;
+- at most four files per band, so a footer whose social icons are eight
+  separate files cannot spend the whole import's budget before the hero, the
+  logo wall and the culture band have been looked at;
+- `logo-wall` prefers the SVGs, everything else the photographs;
+- an image already chosen by the model or an admin is never overwritten;
+- the frame render is reference for the fidelity review and is never content.
+
+**Alt text is deliberately left empty.** What is known is the file and the band
+it came from; what it depicts is not, and an invented description is a wrong
+claim where an empty alt is merely a decorative one. Every section filled this
+way is named in the import notes on the plan screen, so the alt text gets
+written — by the agent, which can now look at the image, or by the admin.
+Leftover images, unfilled slots and images no section claimed are all reported
+the same way rather than silently dropped: they stay in the asset library.
+
+`scripts/smoke.mjs` covers this end to end without a model call.
+
+### Replicating what is not a component
+
+Functional bands are approved components and are never hand-written. Everything
+else — a bespoke hero, a stats strip, an editorial block, an unusual footer —
+is a `custom-html` replica, and the point of a replica is that it matches the
+design. Three tools in
+[`src/lib/agent/design-tools.ts`](src/lib/agent/design-tools.ts) feed it, and
+the order matters:
+
+| Tool | What it gives the agent |
+|---|---|
+| `render_design_node` | **The band, as a picture.** Renders that exact node through the MCP screenshot tool, capped at 1200px so it is worth looking at, and stores it — so asking twice is free, and `describe_design_node` shows the same image afterwards. |
+| `describe_design_node` | The exact numbers: box sizes and offsets, fills, type, radii, the real copy, the design's own images for that band — and the picture alongside them. |
+| `get_design_reference` | Figma's own markup for the node, via `get_design_context`, requested as `html,css` rather than the React default because a `custom-html` replica is what gets written. Reference only: it knows nothing about this project's components, tokens or sanitizer. |
+
+Before this, the agent authored replicas from a coordinate dump and never saw
+the design at all — which is the reliable way to produce a band that is the
+right size and the wrong shape. Tool results can carry image blocks, so now it
+looks first. SVGs and anything over 3.5MB are not offered as pictures (the API
+takes neither), which is the other reason a band-sized render beats a
+full-page one.
 
 ### Design fidelity review
 
@@ -394,13 +460,14 @@ produces an original plan; it never reproduces copy or markup.
 ### Imagery
 
 The agent cannot browse the web for a photograph, and an invented CDN URL is a
-link that 404s. So image URLs may only come from three sanctioned sources, and
+link that 404s. So image URLs may only come from four sanctioned sources, and
 `set_section_image` **refuses** anything else rather than writing a guess into
 the blueprint:
 
 | Source | Needs | Notes |
 |---|---|---|
-| Company uploads | nothing | `POST /api/projects/:id/assets`. Content-addressed, served back by the studio. Always preferred — a real photo of the real team beats stock. |
+| The imported design | the Figma MCP backend | The design's own photographs and logos, pulled out by `download_assets` at import and copied into the asset store. The best imagery there is: the real marks and the real people. Figma records only the frame each one was found in, not the layer, so the agent matches them by shape and position and falls back to a placeholder when it cannot tell. |
+| Company uploads | nothing | `POST /api/projects/:id/assets`. Content-addressed, served back by the studio. Preferred over stock — a real photo of the real team beats stock. |
 | Stock photography | `UNSPLASH_ACCESS_KEY` or `PEXELS_API_KEY` | CDN URLs referenced, never copied. Attribution comes back with each result and is carried into the blueprint, because both licences require it on display. |
 | Branded placeholder | nothing | `/api/placeholder` renders an SVG in the site's own colours, labelled with what belongs there. |
 

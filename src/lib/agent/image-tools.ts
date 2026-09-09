@@ -49,25 +49,44 @@ export function buildImageTools(context: ImageToolContext) {
   const listImageSources = betaZodTool({
     name: "list_image_sources",
     description:
-      "Find out where images can come from for this site: what the company has uploaded, whether stock photography is available, and which sections take an image. Call this before promising an administrator any imagery.",
+      "Find out where images can come from for this site: the imported design's own photographs and logos, what the company has uploaded, whether stock photography is available, and which sections take an image. Call this before promising an administrator any imagery.",
     inputSchema: z.object({}),
     run: async () => {
       onActivity("list_image_sources", "Checked what imagery is available");
 
       const uploaded = await assets.list(projectId);
       const stock = getStockProvider();
+      const design = await store.getDesign(projectId);
+      // Renders of whole frames are reference material for the fidelity
+      // review, not content — offering one as a section image would put a
+      // picture of the page inside the page.
+      const fromDesign = (design?.assets ?? []).filter((asset) => asset.kind !== "export");
 
       const slots = Object.entries(IMAGE_SLOTS)
         .map(([type, slot]) => `  ${type}: content key "${slot.key}" (${slot.orientation}) — ${slot.note}`)
         .join("\n");
 
       return [
+        `FROM THE IMPORTED DESIGN (${fromDesign.length}):`,
+        fromDesign.length > 0
+          ? fromDesign
+              .map(
+                (asset) =>
+                  `  ${asset.url} — ${asset.kind === "svg" ? "icon or logo" : "photograph"} (${asset.format || "image"}) from the frame “${asset.frameName}”`,
+              )
+              .join("\n")
+          : design
+            ? "  none. This design carried no images the importer could extract, so dress the site from the sources below."
+            : "  no design imported. This project was started from the base site, or predates image import.",
+        "",
+        "These are the design's own files, already hosted by this project. They are the best imagery available — use them before anything below, and re-import the design if you need more of them.",
+        "",
         `UPLOADED BY THE COMPANY (${uploaded.length}):`,
         uploaded.length > 0
           ? uploaded
               .map((asset) => `  ${asset.url} — ${asset.alt || "no description"} (${Math.round(asset.bytes / 1024)}KB)`)
               .join("\n")
-          : "  none yet. The administrator can upload from the studio; these are always preferable to stock.",
+          : "  none yet. The administrator can upload from the studio; these are preferable to stock.",
         "",
         `STOCK PHOTOGRAPHY: ${
           stock.configured

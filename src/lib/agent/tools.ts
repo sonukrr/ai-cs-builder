@@ -359,13 +359,15 @@ export function buildTools(context: ToolContext) {
       const design = await provider.fetchDesign(parsed.fileKey, nodeId ?? parsed.nodeId, projectId);
 
       onActivity("import_figma", `Analysing ${design.frames.length} frame(s) from “${design.fileName}”`);
-      const { plan, dropped } = await analyzeDesign(design);
+      const { plan, dropped, notes } = await analyzeDesign(design);
 
       await store.savePlan(projectId, plan, {
         backend: design.backend,
         fileName: design.fileName,
         dropped,
-        warnings: design.warnings,
+        // The importer's own notes belong beside the backend's: from the
+        // admin's side both are "things to know about this import".
+        warnings: [...design.warnings, ...notes],
         // The fidelity review compares the built site back against the design,
         // so the design has to survive past this request. Band heights and the
         // rendered frame images live only on the DesignDocument, which is not

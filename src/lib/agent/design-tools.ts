@@ -1,9 +1,12 @@
 import { z } from "zod";
 import { betaZodTool } from "@anthropic-ai/sdk/helpers/beta/zod";
+import type { BetaToolResultContentBlockParam } from "@anthropic-ai/sdk/resources/beta";
 import { store } from "@/lib/store/store";
+import { assets } from "@/lib/store/assets";
+import { getFigmaProvider } from "@/lib/providers/figma";
 import { applyOperations, BlueprintOperation } from "@/lib/blueprint/operations";
 import { isBuildable, validateBlueprint } from "@/lib/blueprint/validate";
-import type { DesignDocument, DesignFrame, DesignNode } from "@/lib/providers/figma/types";
+import type { DesignAsset, DesignDocument, DesignFrame, DesignNode } from "@/lib/providers/figma/types";
 import type { Section } from "@/lib/blueprint/schema";
 
 /**
@@ -12,9 +15,18 @@ import type { Section } from "@/lib/blueprint/schema";
  * The importer maps a band of a design onto an approved component or onto one
  * of the fixed static section types, and the fixed types are the ceiling on
  * fidelity: a band that is neither a hero nor a FAQ gets flattened into the
- * nearest shape or dropped. These two tools are the way past that ceiling for
- * bands that carry no behaviour — the agent reads the real geometry of one node
- * and writes an HTML/CSS replica of it.
+ * nearest shape or dropped. These tools are the way past that ceiling for bands
+ * that carry no behaviour — the agent looks at one node, reads its real
+ * geometry, and writes an HTML/CSS replica of it.
+ *
+ * Looking is the part that was missing. Everything here used to be text: the
+ * agent authored a replica from a coordinate dump having never seen the design,
+ * which is a reliable way to produce a band of the right size and the wrong
+ * shape. `render_design_node` renders the node and returns it as an image
+ * block, `describe_design_node` now carries that picture alongside the numbers,
+ * and `get_design_reference` fetches Figma's own markup for the node as a
+ * starting point. The numbers are exact; the picture is what it should look
+ * like; neither is sufficient alone.
  *
  * They are split from tools.ts because they share a constraint the others do
  * not. Everything else the agent writes is a value in a schema somebody else
@@ -37,6 +49,56 @@ const MAX_TEXT_LENGTH = 220;
 const MAX_IMAGES = 12;
 const MAX_PALETTE = 10;
 const MAX_TYPE_STYLES = 8;
+
+/**
+ * Image types the model can actually be shown.
+ *
+ * The asset store also accepts SVG and AVIF, which the API will not take as an
+ * image block — an SVG logo is a perfectly good asset and a useless picture, so
+ * those are silently not offered rather than sent and rejected.
+ */
+const VIEWABLE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
+/**
+ * Ceiling on an image handed to the model, under the API's own 5MB limit.
+ *
+ * A full-page careers frame renders past this, which is the reason
+ * render_design_node exists: a band-sized render is both legible and small.
+ */
+const MAX_VIEWABLE_BYTES = 3_500_000;
+
+/** Reference code past this is a whole page, not a band worth reading. */
+const MAX_REFERENCE_CHARS = 12_000;
+
+/**
+ * Turns one of this project's stored assets into a block the model can see.
+ *
+ * Returns null for anything that cannot or should not be shown — a foreign
+ * URL, a missing file, a vector, something too large. Callers treat that as
+ * "no picture available" and say so in words, because a replica authored
+ * blind is still better than a tool call that failed.
+ */
+async function viewable(
+  projectId: string,
+  url: string,
+): Promise<BetaToolResultContentBlockParam | null> {
+  const prefix = `/api/projects/${projectId}/assets/`;
+  if (!url.startsWith(prefix)) return null;
+
+  const stored = await assets.read(projectId, url.slice(prefix.length));
+  if (!stored) return null;
+  if (!VIEWABLE_TYPES.has(stored.contentType)) return null;
+  if (stored.data.byteLength > MAX_VIEWABLE_BYTES) return null;
+
+  return {
+    type: "image",
+    source: {
+      type: "base64",
+      media_type: stored.contentType as "image/png" | "image/jpeg" | "image/gif" | "image/webp",
+      data: stored.data.toString("base64"),
+    },
+  };
+}
 
 interface Entry {
   node: DesignNode;
@@ -144,7 +206,12 @@ function renderEntry(entry: Entry, originX: number, originY: number): string[] {
   return lines;
 }
 
-function describeSubtree(node: DesignNode, frame: DesignFrame, warnings: string[]): string {
+function describeSubtree(
+  node: DesignNode,
+  frame: DesignFrame,
+  warnings: string[],
+  assets: DesignAsset[],
+): string {
   const entries: Entry[] = [];
   const root = collect(node, 0, null, entries);
   root.shown = true;
@@ -203,12 +270,36 @@ function describeSubtree(node: DesignNode, frame: DesignFrame, warnings: string[
   }
   if (shown.length === 1) lines.push("  (nothing inside it — this band is empty)");
 
-  if (images.length > 0) {
-    lines.push("", "IMAGES — these are the design's own assets. Use search_stock_images for a replacement photograph rather than linking a Figma URL:");
+  // The design's own files, already downloaded into this project's asset store
+  // by the import. These are the real photographs and logos, so a replica that
+  // reaches for stock photography instead is choosing to look less like the
+  // design than it could.
+  const designFiles = assets.filter((asset) => asset.kind !== "export" && asset.frameId === frame.id);
+
+  if (images.length > 0 || designFiles.length > 0) {
+    lines.push("", "IMAGES IN THIS BAND:");
     for (const image of images.slice(0, MAX_IMAGES)) {
       lines.push(`  ${image.id} "${image.name}" ${image.bounds.width}×${image.bounds.height} → ${image.imageUrl}`);
     }
     if (images.length > MAX_IMAGES) lines.push(`  …and ${images.length - MAX_IMAGES} more.`);
+
+    if (designFiles.length > 0) {
+      const logos = designFiles.filter((asset) => asset.kind === "svg");
+      const photos = designFiles.filter((asset) => asset.kind === "raw");
+      lines.push(
+        `  This design's own files were imported into "${frame.name}" and are already hosted by this project — ` +
+          `use them directly as an image src or with set_section_image. Prefer them over search_stock_images: ` +
+          `they are the real photographs and marks, not a stand-in.`,
+      );
+      for (const asset of [...logos, ...photos].slice(0, MAX_IMAGES)) {
+        lines.push(`  ${asset.kind === "svg" ? "icon/logo" : "photograph"} (${asset.format || "image"}) → ${asset.url}`);
+      }
+      if (designFiles.length > MAX_IMAGES) lines.push(`  …and ${designFiles.length - MAX_IMAGES} more.`);
+      lines.push(
+        `  Figma does not say which layer each of these came from, only that they are inside this frame — ` +
+          `match them to the boxes above by their shape and position, and if you cannot tell, leave the slot to a placeholder rather than guessing.`,
+      );
+    }
   }
 
   if (palette.size > 0) {
@@ -275,14 +366,177 @@ export function buildDesignTools(context: DesignToolContext) {
       }
 
       onActivity("describe_design_node", `Read the design detail of “${found.node.name}”`);
-      return describeSubtree(found.node, found.frame, design.warnings);
+      const text = describeSubtree(found.node, found.frame, design.warnings, design.assets ?? []);
+
+      // Geometry describes a band; a picture shows it. Prefer a render of this
+      // exact node if one has been taken, then the frame it sits in — a
+      // too-large frame render is skipped rather than shrunk, because
+      // render_design_node can produce a band-sized one on request.
+      // Which of the two actually produced a picture decides what to say about
+      // it: a node render that turned out too large to show falls through to
+      // the frame, and calling that "this node" would be a lie.
+      const ownRender = design.images?.[found.node.id];
+      const ownPicture = ownRender ? await viewable(projectId, ownRender) : null;
+      const picture =
+        ownPicture ?? (await viewable(projectId, design.images?.[found.frame.id] ?? ""));
+      const isOwnRender = picture !== null && picture === ownPicture;
+
+      if (!picture) {
+        return [
+          {
+            type: "text",
+            text: `${text}\n\nNO PICTURE AVAILABLE for this node. Call render_design_node on ${found.node.id} to see it before writing markup — replicating from coordinates alone is how a band ends up the right size and the wrong shape.`,
+          },
+        ];
+      }
+
+      return [
+        {
+          type: "text",
+          text: `${text}\n\n${
+            isOwnRender
+              ? `Below is a render of this node.`
+              : `Below is a render of the whole frame “${found.frame.name}”, not of this node alone — find this band within it, or call render_design_node on ${found.node.id} for a render of just this band.`
+          } Read the picture and the numbers together: the numbers are exact, the picture is what it is supposed to look like.`,
+        },
+        picture,
+      ];
+    },
+  });
+
+  const renderDesignNode = betaZodTool({
+    name: "render_design_node",
+    description:
+      "Render one node of the imported Figma design and look at it. Returns the picture itself, so you can see what a band is supposed to look like instead of inferring it from coordinates. " +
+      "Call this before writing markup for any presentational band, and again afterwards if review_fidelity says the replica does not match. " +
+      "The ref is a Figma node id such as '2:19' — the ids describe_design_node prints, the section's origin in the plan, or a band's ref in a fidelity report. " +
+      "Renders are stored, so calling this twice on the same node costs nothing and describe_design_node will show the same picture afterwards. Needs a live connection to Figma; if the design was imported from a backend that cannot render, this says so.",
+    inputSchema: z.object({
+      ref: z.string().describe("Figma node id, e.g. '2:19' — the band you want to look at"),
+    }),
+    run: async ({ ref }) => {
+      const design = await store.getDesign(projectId);
+      if (!design) {
+        return "No Figma design is stored for this project, so there is nothing to render. Run import_figma first.";
+      }
+
+      const nodeId = ref.trim();
+      const found = locate(design, nodeId);
+      if (!found) {
+        return `No node "${nodeId}" in the imported design "${design.fileName}". Call describe_design_node or get_blueprint for the real ids.`;
+      }
+
+      // Already rendered once — the store is the cache.
+      const cached = design.images?.[nodeId];
+      const existing = cached ? await viewable(projectId, cached) : null;
+      if (existing) {
+        onActivity("render_design_node", `Looked at “${found.node.name}”`);
+        return [
+          { type: "text", text: `Render of ${nodeId} "${found.node.name}" (${found.node.bounds.width}×${found.node.bounds.height} in the design).` },
+          existing,
+        ];
+      }
+
+      const provider = getFigmaProvider();
+      if (!provider.renderNode) {
+        return `This project's Figma backend ("${provider.backend}") cannot render a single node. Use the frame picture from describe_design_node, and tell the administrator that a band-level render needs the Figma MCP backend.`;
+      }
+      if (!design.fileKey) {
+        return "The stored design has no Figma file key, so it cannot be re-rendered. Re-run import_figma with the file URL.";
+      }
+
+      let result: Awaited<ReturnType<NonNullable<typeof provider.renderNode>>>;
+      try {
+        result = await provider.renderNode(design.fileKey, nodeId, projectId);
+      } catch (error) {
+        return `Could not render ${nodeId}: ${error instanceof Error ? error.message : String(error)}`;
+      }
+
+      if (!result?.url) {
+        return `Figma returned no image for ${nodeId}.${result?.warnings.length ? ` ${result.warnings.join(" ")}` : ""} Work from describe_design_node's numbers instead, and say the replica was authored without a reference picture.`;
+      }
+
+      // Keep it, so this is the last time this node costs a round trip.
+      await store.saveDesign(projectId, {
+        ...design,
+        images: { ...design.images, [nodeId]: result.url },
+      });
+
+      const picture = await viewable(projectId, result.url);
+      if (!picture) {
+        return `Rendered ${nodeId}, but the image is too large or not a type that can be displayed. It is stored at ${result.url}.`;
+      }
+
+      onActivity("render_design_node", `Rendered “${found.node.name}”`);
+      return [
+        {
+          type: "text",
+          text: `Render of ${nodeId} "${found.node.name}" (${found.node.bounds.width}×${found.node.bounds.height} in the design).${
+            result.warnings.length > 0 ? ` Note: ${result.warnings.join(" ")}` : ""
+          }`,
+        },
+        picture,
+      ];
+    },
+  });
+
+  const getDesignReference = betaZodTool({
+    name: "get_design_reference",
+    description:
+      "Ask Figma for its own markup for one node — the nesting, spacing and type scale as the designer actually built them. Use it as a starting point for a custom-html replica, after render_design_node has shown you the band. " +
+      "This is REFERENCE, not something to ship: it knows nothing about this project's components, tokens or sanitizer, it may name Figma's own asset URLs, and it will happily describe a search box that you must build from the approved catalog instead. Translate it, never paste it. " +
+      "Image URLs in it are Figma's and will expire — use this project's own assets from list_image_sources. Needs the Figma MCP backend.",
+    inputSchema: z.object({
+      ref: z.string().describe("Figma node id, e.g. '2:19' — the band you are replicating"),
+    }),
+    run: async ({ ref }) => {
+      const design = await store.getDesign(projectId);
+      if (!design) return "No Figma design is stored for this project. Run import_figma first.";
+
+      const nodeId = ref.trim();
+      const found = locate(design, nodeId);
+      if (!found) {
+        return `No node "${nodeId}" in the imported design "${design.fileName}". Call describe_design_node for the real ids.`;
+      }
+
+      const provider = getFigmaProvider();
+      if (!provider.referenceNode) {
+        return `This project's Figma backend ("${provider.backend}") cannot produce reference code. Author the replica from describe_design_node and render_design_node instead.`;
+      }
+      if (!design.fileKey) {
+        return "The stored design has no Figma file key. Re-run import_figma with the file URL.";
+      }
+
+      let result: Awaited<ReturnType<NonNullable<typeof provider.referenceNode>>>;
+      try {
+        result = await provider.referenceNode(design.fileKey, nodeId);
+      } catch (error) {
+        return `Could not read reference code for ${nodeId}: ${error instanceof Error ? error.message : String(error)}`;
+      }
+
+      if (!result || !result.code) {
+        return `Figma returned no reference code for ${nodeId}.${result?.warnings.length ? ` ${result.warnings.join(" ")}` : ""} Author the replica from the geometry and the render instead.`;
+      }
+
+      onActivity("get_design_reference", `Read Figma's own markup for “${found.node.name}”`);
+      return [
+        `REFERENCE CODE for ${nodeId} "${found.node.name}", generated by Figma. Adapt it — do not paste it.`,
+        result.warnings.length > 0 ? `Note: ${result.warnings.join(" ")}` : null,
+        "",
+        result.code.slice(0, MAX_REFERENCE_CHARS),
+        result.code.length > MAX_REFERENCE_CHARS
+          ? `\n…(truncated at ${MAX_REFERENCE_CHARS} characters; call describe_design_node on a child id for the rest)`
+          : null,
+      ]
+        .filter((line) => line !== null)
+        .join("\n");
     },
   });
 
   const setCustomHtml = betaZodTool({
     name: "set_custom_html",
     description:
-      "Write the HTML and CSS of a custom-html replica section, replacing whatever it held before. Use this for a band that is presentation only — a bespoke hero, a stats strip, an editorial block, an unusual footer — after describe_design_node has told you what it looks like. " +
+      "Write the HTML and CSS of a custom-html replica section, replacing whatever it held before. Use this for a band that is presentation only — a bespoke hero, a stats strip, an editorial block, an unusual footer — after render_design_node has shown you the band and describe_design_node has given you its numbers. Authoring from coordinates you have not looked at is how a replica comes out the right size and the wrong shape. " +
       "Before you reach for it, work down this order: anything FUNCTIONAL (search, filtering, listings, pagination, apply, resume upload) is an approved component from search_components and must never be hand-written; a band that is only a WRAPPER around the bands below it is a layout container (row/stack/grid); a band that carries nothing — zero height, empty, or a duplicate of something you already built — is a record_unsupported and nothing else, because inventing copy to fill it is worse than leaving it out. Only what is left is a replica. " +
       "The section must already exist as type \"custom-html\", source \"custom\": add it with apply_operations first. " +
       "The markup is sanitized server-side before it is saved, and the sanitizer is not advisory — form, input, textarea, select, button, label and fieldset are REJECTED outright, because a hand-written search box that does not search is exactly the false claim the approved component catalog exists to prevent. A link styled as a button is fine; an <a> is honest about being a link. script, style, iframe, on* handlers and javascript:/data: URLs are rejected too. Anything the sanitizer changes or refuses comes back to you verbatim — read it and fix the markup rather than reporting success.",
@@ -291,7 +545,7 @@ export function buildDesignTools(context: DesignToolContext) {
       html: z
         .string()
         .describe(
-          "the markup. No <style> and no <script> — CSS goes in the css field so it can be scoped. Put the design's real copy in it, taken from describe_design_node; never write filler. Image src must be a URL a tool gave you: search_stock_images, create_placeholder_image, or this project's own asset store.",
+          "the markup. No <style> and no <script> — CSS goes in the css field so it can be scoped. Put the design's real copy in it, taken from describe_design_node; never write filler. Image src must be a URL a tool gave you — the design's own imported files first (describe_design_node lists them per band, list_image_sources lists them all), then search_stock_images or create_placeholder_image. Never a Figma URL: they expire.",
         ),
       css: z
         .string()
@@ -407,5 +661,5 @@ export function buildDesignTools(context: DesignToolContext) {
     },
   });
 
-  return [describeDesignNode, setCustomHtml];
+  return [describeDesignNode, renderDesignNode, getDesignReference, setCustomHtml];
 }

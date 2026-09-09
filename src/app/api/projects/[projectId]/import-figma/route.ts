@@ -44,14 +44,16 @@ export async function POST(
       body.nodeId ?? parsed?.nodeId,
       projectId,
     );
-    const { plan, dropped } = await analyzeDesign(design);
+    const { plan, dropped, notes } = await analyzeDesign(design);
 
     await store.savePlan(projectId, plan, {
       backend: design.backend,
       fileName: design.fileName,
       frameCount: design.frames.length,
       dropped,
-      warnings: design.warnings,
+      // The importer's own notes belong beside the backend's: from the
+      // admin's side both are "things to know about this import".
+      warnings: [...design.warnings, ...notes],
       // The fidelity review compares the built site back against the design,
       // so the design has to survive past this request. Band heights and the
       // rendered frame images live only on the DesignDocument, which is not
@@ -75,7 +77,7 @@ export async function POST(
       dropped,
       backend: design.backend,
       fileName: design.fileName,
-      warnings: design.warnings,
+      warnings: [...design.warnings, ...notes],
     });
   } catch (error) {
     return Response.json({ error: describeApiError(error) }, { status: 502 });

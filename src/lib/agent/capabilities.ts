@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import { figmaStatus } from "@/lib/providers/figma";
 import { baseSiteStatus } from "@/lib/providers/github";
+import { deployTargetStatus } from "@/lib/providers/github/deploy-target";
+import { vercelStatus } from "@/lib/providers/vercel";
 import { getStockProvider } from "@/lib/providers/images/stock";
 import { researchStatus } from "@/lib/providers/research";
 import { hasApiKey } from "./client";
@@ -62,6 +64,8 @@ export function capabilities(): Capability[] {
   const figma = figmaStatus();
   const capture = captureStatus();
   const base = baseSiteStatus();
+  const deployTarget = deployTargetStatus();
+  const vercel = vercelStatus();
   const stock = getStockProvider();
   const research = researchStatus();
 
@@ -92,7 +96,11 @@ export function capabilities(): Capability[] {
       // stand-in so the flow is demonstrable rather than dark.
       state: base.backend === "mock" ? "demo" : base.ready ? "ready" : "needs-config",
       detail: base.detail,
-      requires: ["BASE_SITE_REPO (the approved repository link)", "GITHUB_TOKEN"],
+      requires: [
+        "BASE_SITE_REPO (the approved repository link)",
+        "GITHUB_PROVIDER=mcp or =rest",
+        "GITHUB_TOKEN — and on the MCP backend it is still needed for the one read MCP cannot do, a recursive listing",
+      ],
       tools: ["read_base_site", "start_from_base"],
     },
     {
@@ -203,6 +211,24 @@ export function capabilities(): Capability[] {
           : base.detail,
       requires: ["BASE_SITE_REPO", "GITHUB_TOKEN"],
       tools: ["commit_to_branch", "request_publish"],
+    },
+    {
+      id: "DEPLOY_SITE",
+      name: "Publish the site to GitHub and Vercel",
+      description:
+        "Hands the approved version to a deploy agent, which generates an application from the blueprint, pushes it to a GitHub repository the administrator supplies, and deploys it to Vercel. A site using approved careers components is generated as Angular with the real library installed, because that is the only target those components run in; a presentation-only site can be generated as React instead, where they would ship as labelled gaps.",
+      // Two halves that fail independently, so the state is the weaker of them.
+      // Pushing with no Vercel token is a real outcome — the code is in the
+      // repository and one click at vercel.com finishes it — so that is demo
+      // rather than broken; no GitHub access at all leaves nothing anywhere.
+      state: !deployTarget.ready ? "demo" : vercel.ready ? "ready" : "demo",
+      detail: `${deployTarget.detail} ${vercel.detail}`,
+      requires: [
+        "GITHUB_TOKEN (or GITHUB_MCP_URL + GITHUB_MCP_TOKEN to push through a GitHub MCP server)",
+        "VERCEL_TOKEN, and VERCEL_TEAM_ID for a team account",
+        "A destination repository, supplied by the administrator per project",
+      ],
+      tools: ["hand_off_to_deploy", "get_deployment_status"],
     },
   ];
 }

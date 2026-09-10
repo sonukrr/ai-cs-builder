@@ -753,3 +753,157 @@ select {
   font-size: 12px;
   background: var(--bg-raised);
 }
+
+/* ---- publish panel -------------------------------------------------------- */
+
+.catalog.publish {
+  width: min(720px, 100%);
+}
+
+.catalog.publish .catalog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-bottom: 16px;
+}
+
+.catalog.publish .catalog-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.publish-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.publish-row {
+  display: flex;
+  gap: 12px;
+}
+.publish-row > .publish-section {
+  flex: 1;
+}
+
+/* A control in a stacked section should be its own width, not the panel's. */
+.publish-section > .btn {
+  align-self: flex-start;
+}
+
+.publish-label {
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+
+.publish-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+.publish-check input {
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+  flex: none;
+}
+
+.publish-check strong {
+  color: var(--text);
+}
+
+/*
+  What will not work once this is live. Amber rather than red: none of it stops
+  the publish, and all of it changes whether the administrator wants to.
+*/
+.publish-warnings {
+  border: 1px solid #4a3c1c;
+  border-left: 3px solid var(--warn);
+  border-radius: var(--radius);
+  background: #1c1810;
+  padding: 12px 14px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.publish-warnings ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--text-dim);
+}
+.publish-warnings li + li {
+  margin-top: 6px;
+}
+
+.publish-status {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+.publish-status > div {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.publish-files {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--bg-inset);
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.publish-files > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 2px 0;
+}
+
+.publish-notes ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* The publish takes minutes, so its log is the panel's centre of gravity. */
+.publish-log {
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--bg-inset);
+  padding: 10px 12px;
+}
+
+.publish-history {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 12.5px;
+}
+.publish-history:last-child {
+  border-bottom: 0;
+}
+
+/* The published URL is what everyone is waiting for; make it the biggest thing
+   in the result panel rather than one link among four. */
+.publish-live-url {
+  display: inline-block;
+  font-size: 14px;
+  word-break: break-all;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-inset);
+}

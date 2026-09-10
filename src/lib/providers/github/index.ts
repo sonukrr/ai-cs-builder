@@ -6,6 +6,8 @@ import {
   isWritable,
 } from "./types";
 import { GitHubRestProvider } from "./rest";
+import { GitHubMcpBaseSiteProvider } from "./base-mcp";
+import { DEFAULT_GITHUB_MCP_URL, gitHubMcpCredentialState } from "./mcp-auth";
 
 export * from "./types";
 
@@ -115,11 +117,41 @@ class BaseSiteMockProvider implements BaseSiteProvider {
   }
 }
 
+/** Where the GitHub MCP server lives, if one is being used. */
+export function githubMcpUrl(): string {
+  return (process.env.GITHUB_MCP_URL ?? "").trim() || DEFAULT_GITHUB_MCP_URL;
+}
+
+/**
+ * Which backend reads the approved base site.
+ *
+ * `GITHUB_PROVIDER` is the one knob for both halves of the GitHub integration:
+ * reading the base repository here, and pushing a generated site in
+ * `deploy-target.ts`, which falls back to this variable when
+ * GITHUB_DEPLOY_PROVIDER is unset. So `GITHUB_PROVIDER=mcp` moves the whole
+ * integration onto MCP rather than half of it.
+ *
+ * An explicit GITHUB_MCP_URL is read as a statement of intent too, for the same
+ * reason it is on the deploy side: nobody sets it by accident.
+ */
 export function getBaseSiteProvider(): BaseSiteProvider {
   const configured = (process.env.GITHUB_PROVIDER ?? "").toLowerCase();
-  if (configured === "rest" || (configured !== "mock" && process.env.GITHUB_TOKEN)) {
+
+  if (configured === "mock") return new BaseSiteMockProvider();
+
+  if (configured === "mcp" || (configured === "" && process.env.GITHUB_MCP_URL?.trim())) {
+    return new GitHubMcpBaseSiteProvider({
+      url: githubMcpUrl(),
+      // For the recursive listing MCP has no tool for. Either variable, since
+      // both are set by hand and are therefore personal access tokens.
+      token: (process.env.GITHUB_TOKEN ?? process.env.GITHUB_MCP_TOKEN ?? "").trim(),
+    });
+  }
+
+  if (configured === "rest" || process.env.GITHUB_TOKEN) {
     return new GitHubRestProvider(process.env.GITHUB_TOKEN ?? "");
   }
+
   return new BaseSiteMockProvider();
 }
 
@@ -146,6 +178,22 @@ export function baseSiteStatus(): BaseSiteStatus {
       repo: repo || "example-org/career-site-base",
       detail:
         "Using a stand-in base repository. Set BASE_SITE_REPO and GITHUB_TOKEN to read the approved one.",
+    };
+  }
+
+  if (provider.backend === "mcp") {
+    const credential = gitHubMcpCredentialState(githubMcpUrl());
+    const listing = (process.env.GITHUB_TOKEN ?? process.env.GITHUB_MCP_TOKEN ?? "").trim()
+      ? ""
+      : " No personal access token is set, so structure discovery falls back to a bounded directory walk — MCP has no recursive listing.";
+
+    return {
+      backend: "mcp",
+      ready: Boolean(repo) && credential.available,
+      repo,
+      detail: repo
+        ? `Reading ${repo} through the GitHub MCP server at ${githubMcpUrl()}. ${credential.detail}${listing}`
+        : `The GitHub MCP server at ${githubMcpUrl()} is configured but BASE_SITE_REPO is not — supply the approved base repository link.`,
     };
   }
 

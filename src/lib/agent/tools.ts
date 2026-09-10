@@ -13,6 +13,9 @@ import {
   isWritable,
   PROTECTED_BRANCHES,
 } from "@/lib/providers/github";
+import { runDeployAgent } from "./deploy-agent";
+import { deployTargetStatus } from "@/lib/providers/github/deploy-target";
+import { vercelStatus } from "@/lib/providers/vercel";
 import { buildImageTools } from "./image-tools";
 import { buildDatasetTools } from "./dataset-tools";
 import { buildFidelityTools } from "./fidelity-tools";
@@ -672,7 +675,7 @@ export function buildTools(context: ToolContext) {
   const requestPublish = betaZodTool({
     name: "request_publish",
     description:
-      "File a request to publish the current version. Validates the blueprint first. This never deploys — a reviewer approves it separately.",
+      "File a request to publish the current version. Validates the blueprint first. Filing a request does not deploy anything: publishing for real is hand_off_to_deploy, which needs a GitHub destination from the administrator.",
     inputSchema: z.object({
       notes: z.string().optional().describe("anything the reviewer should know"),
     }),
@@ -700,12 +703,136 @@ export function buildTools(context: ToolContext) {
       onActivity("request_publish", `Filed a publish request for version ${blueprint.version}`);
 
       const warnings = issues.filter((i) => i.level === "warning");
+      const target = await store.getDeployTarget(projectId);
       return [
         `Publish request ${request.id.slice(0, 8)} filed for version ${blueprint.version}. Status: pending review.`,
         warnings.length > 0 ? `Reviewer will see these warnings: ${warnings.map((w) => w.message).join("; ")}` : null,
+        target
+          ? `Nothing is live yet. hand_off_to_deploy publishes it to ${target.repo}, the destination already stored for this project.`
+          : "Nothing is live yet. To publish for real, ask the administrator which GitHub repository the site should go to, then call hand_off_to_deploy.",
       ]
         .filter(Boolean)
         .join("\n");
+    },
+  });
+
+  /**
+   * The handoff to the deploy agent.
+   *
+   * "Publish this to github.com/acme/careers" is a reasonable thing to say in
+   * the studio, so it is a tool rather than a redirection to another screen.
+   * What is handed over is the project — the current blueprint version — and a
+   * destination that came from the administrator's own words.
+   *
+   * The deploy agent runs to completion inside this call and its activity is
+   * forwarded to the studio's timeline, so the conversation shows the publish
+   * happening rather than reporting it afterwards. Its report comes back as the
+   * tool result, which is what this agent then relays.
+   */
+  const handOffToDeploy = betaZodTool({
+    name: "hand_off_to_deploy",
+    description:
+      "Hand the current version to the deploy agent, which generates the site, pushes it to a GitHub repository and deploys it to Vercel. It builds Angular when the site uses approved careers components — the only target they can run in — and React when it is presentation only. The repository must be one the administrator has given you in this conversation — never one you inferred, remembered or guessed. Takes minutes.",
+    inputSchema: z.object({
+      repo: z
+        .string()
+        .describe("the destination GitHub repository the administrator named, as owner/name or a github.com URL"),
+      branch: z.string().optional().describe("defaults to main"),
+      vercelProject: z.string().optional().describe("Vercel project name, if they named one"),
+      overwriteConfirmed: z
+        .boolean()
+        .optional()
+        .describe(
+          "true only if the administrator has explicitly agreed that an existing repository may be published over. Never set this yourself.",
+        ),
+      notes: z.string().optional().describe("anything the deploy agent should know"),
+    }),
+    run: async ({ repo, branch, vercelProject, overwriteConfirmed, notes }) => {
+      const blueprint = await requireBlueprint();
+      const issues = validateBlueprint(blueprint);
+      if (!isBuildable(issues)) {
+        return `Cannot publish — the site does not validate:\n${issues
+          .filter((issue) => issue.level === "error")
+          .map((issue) => `  ${issue.path}: ${issue.message}`)
+          .join("\n")}`;
+      }
+
+      onActivity("hand_off_to_deploy", `Handing version ${blueprint.version} to the deploy agent`);
+
+      const lines: string[] = [];
+      let report = "";
+      let finished = false;
+
+      for await (const event of runDeployAgent({
+        projectId,
+        repo,
+        branch,
+        vercelProject,
+        allowNonEmpty: overwriteConfirmed ?? false,
+        notes,
+      })) {
+        if (event.type === "activity") onActivity(`deploy:${event.tool}`, event.summary);
+        else if (event.type === "text") report += event.text;
+        else if (event.type === "error") lines.push(`Error: ${event.message}`);
+        else if (event.type === "done") {
+          finished = true;
+          lines.push(
+            `Deployment ${event.deployment.status}.`,
+            event.deployment.url ? `Live at ${event.deployment.url}` : "No live URL.",
+            event.deployment.commitUrl ? `Commit: ${event.deployment.commitUrl}` : "",
+            ...event.deployment.warnings.map((warning) => `Warning: ${warning}`),
+          );
+        }
+      }
+
+      if (!finished) lines.push("The publish did not finish.");
+
+      // The deploy agent's own report first: it is the one that watched it.
+      return [report.trim(), lines.filter(Boolean).join("\n")].filter(Boolean).join("\n\n");
+    },
+  });
+
+  const deploymentStatus = betaZodTool({
+    name: "get_deployment_status",
+    description:
+      "Report where this project has been published to and what happened, newest first. Read this before answering any question about whether the site is live.",
+    inputSchema: z.object({}),
+    run: async () => {
+      const [target, deployments] = await Promise.all([
+        store.getDeployTarget(projectId),
+        store.listDeployments(projectId),
+      ]);
+      onActivity("get_deployment_status", "Read the publish history");
+
+      const github = deployTargetStatus();
+      const vercel = vercelStatus();
+      const setup = `GitHub: ${github.backend} (${github.ready ? "ready" : "not configured"}). Vercel: ${
+        vercel.ready ? "ready" : "not configured"
+      }.`;
+
+      if (deployments.length === 0) {
+        return [
+          target
+            ? `Nothing published yet. The stored destination is ${target.repo} on ${target.branch}.`
+            : "Nothing published yet, and no destination has been supplied. Ask the administrator for the GitHub repository the site should go to.",
+          setup,
+        ].join("\n");
+      }
+
+      return [
+        ...deployments.slice(0, 5).map((deployment) =>
+          [
+            `${new Date(deployment.startedAt).toLocaleString()} — v${deployment.version} to ${deployment.repo} (${deployment.branch}): ${deployment.status}.`,
+            deployment.url ? `  live at ${deployment.url}` : "",
+            deployment.pendingComponents.length > 0
+              ? `  not working on it: ${deployment.pendingComponents.join(", ")}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        ),
+        setup,
+      ].join("\n");
     },
   });
 
@@ -723,6 +850,8 @@ export function buildTools(context: ToolContext) {
     listVersions,
     revertToVersion,
     requestPublish,
+    handOffToDeploy,
+    deploymentStatus,
     ...buildImageTools({ projectId, onActivity }),
     ...buildDatasetTools({ projectId, onActivity }),
     ...buildFidelityTools({ projectId, onActivity }),

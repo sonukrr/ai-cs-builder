@@ -266,6 +266,7 @@ function emitStaticSection(section: Section, depth: number, placement: string[])
     `${pad}<app-section`,
     `${pad}${INDENT}type="${section.type}"`,
     `${pad}${INDENT}sectionId="${section.id}"`,
+    `${pad}${INDENT}label="${escapeHtmlText(section.label)}"`,
     `${pad}${INDENT}[content]='${JSON.stringify(content).replace(/'/g, "&apos;")}'`,
     placement.length > 0 ? `${pad}${INDENT}${attr("style", placement.join("; "))}` : null,
     `${pad}></app-section>`,

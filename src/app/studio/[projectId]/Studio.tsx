@@ -9,6 +9,7 @@ import {
 } from "@/components/preview/PreviewFrame";
 import { ComponentCatalog } from "@/components/studio/ComponentCatalog";
 import { FidelityReview } from "@/components/studio/FidelityReview";
+import { PublishPanel } from "./PublishPanel";
 import type { Blueprint, Section } from "@/lib/blueprint/schema";
 import type { FidelityReport } from "@/lib/fidelity/types";
 
@@ -183,6 +184,7 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
   const [source, setSource] = useState<DataSource>("sample");
   const [hasDataset, setHasDataset] = useState(false);
   const [showCatalog, setShowCatalog] = useState(false);
+  const [showPublish, setShowPublish] = useState(false);
   /** Bumped after every change so the preview frame reloads the blueprint. */
   const [previewKey, setPreviewKey] = useState(0);
 
@@ -403,26 +405,6 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
     await load();
   }
 
-  async function requestPublish() {
-    setBusy(true);
-    try {
-      const response = await fetch(`/api/projects/${projectId}/publish`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      const result = await response.json();
-      if (!response.ok) {
-        setError(result.error + (result.issues ? `: ${result.issues.map((i: Issue) => i.message).join("; ")}` : ""));
-      } else {
-        await load();
-        setError("");
-      }
-    } finally {
-      setBusy(false);
-    }
-  }
-
   if (error && !data) {
     return (
       <main className="start">
@@ -483,6 +465,18 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
 
   return (
     <div className="studio">
+      {showPublish && (
+        <PublishPanel
+          projectId={projectId}
+          companyName={blueprint?.company.name ?? data.project.name}
+          blocking={errors.length}
+          onClose={() => setShowPublish(false)}
+          onPublished={() => {
+            void load();
+          }}
+        />
+      )}
+
       {showCatalog && currentPage && (
         <ComponentCatalog
           projectId={projectId}
@@ -508,6 +502,7 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
           </span>
         )}
         {data.project.status === "publish-requested" && <span className="tag tag-good">publish requested</span>}
+        {data.project.status === "deployed" && <span className="tag tag-good">published</span>}
 
         <span className="spacer" />
 
@@ -516,9 +511,13 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
         </button>
         <button
           className="btn btn-sm btn-primary"
-          onClick={requestPublish}
+          onClick={() => setShowPublish(true)}
           disabled={busy || !blueprint || errors.length > 0}
-          title={errors.length > 0 ? "Fix the blocking issues first" : "File a request for review"}
+          title={
+            errors.length > 0
+              ? "Fix the blocking issues first"
+              : "File the request, push the site to GitHub and deploy it"
+          }
         >
           Request publishing
         </button>

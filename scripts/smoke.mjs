@@ -4,7 +4,7 @@
  *
  * Covers the whole pipeline either side of the one LLM call: the Figma mock
  * backend, the band summarizer that feeds the analysis, then plan -> blueprint
- * -> operations -> validation -> Angular emit. Run it before a demo.
+ * -> operations -> validation -> Angular emit -> React emit. Run it before a demo.
  *
  *   node --experimental-strip-types scripts/smoke.mjs
  */
@@ -63,6 +63,10 @@ const { planToBlueprint, repairPlan } = await import("../src/lib/agent/analyze.t
 const { applyOperations } = await import("../src/lib/blueprint/operations.ts");
 const { validateBlueprint, isBuildable } = await import("../src/lib/blueprint/validate.ts");
 const { emitAngularSite, usedComponents } = await import("../src/lib/emit/angular.ts");
+const { emitReactSite, collectStudioAssets } = await import("../src/lib/emit/react/index.ts");
+const { refusedDestination, isGeneratedPath } = await import("../src/lib/providers/github/deploy.ts");
+const { emitAngularApp } = await import("../src/lib/emit/angular-app/index.ts");
+const { recommendedTarget } = await import("../src/lib/agent/deploy-tools.ts");
 const { registry, catalog, searchRegistry } = await import("../src/lib/registry/index.ts");
 
 console.log(`\nRegistry — ${registry.package.name}@${registry.package.version} (${registry.package.framework})`);
@@ -281,10 +285,67 @@ check("real library selectors emitted", jobsTemplate.content.includes("<lib-zm-s
 check("props bound onto the real inputs", jobsTemplate.content.includes('applyBtnText="Apply"') && jobsTemplate.content.includes('label="Filter"'));
 check("used components reported for the build", usedComponents(moved.blueprint).includes("SearchComponent"), usedComponents(moved.blueprint).join(", "));
 
+console.log("\nReact emit (what the deploy agent pushes)");
+const react = emitReactSite(moved.blueprint, { studioProjectId: "smoke" });
+const paths = react.files.map((f) => f.path);
+check("a Next.js app, not a fragment", ["package.json", "tsconfig.json", "app/layout.tsx", "app/globals.css", "app/page.tsx", "lib/site.ts", "lib/content.ts", "blueprint.json"].every((p) => paths.includes(p)), paths.join(", "));
+check("one route per page", react.pages.length === moved.blueprint.pages.length, react.pages.map((p) => p.route).join(", "));
+const homePage = react.files.find((f) => f.path === "app/page.tsx").content;
+check("presentation sections emitted as components", homePage.includes("<Hero") && homePage.includes('from "@/components/sections/Hero"'));
+check("only the components a page uses are imported", !homePage.includes("components/sections/Faq"));
+// The library is Angular. A React build that pretended otherwise would put a
+// search box that does not search in front of a candidate.
+check("approved careers components emit as a labelled gap", homePage.includes("<PendingIntegration") && paths.includes("components/library/PendingIntegration.tsx"));
+check("the gap is reported, not buried", react.warnings.some((w) => w.includes("cannot run in React")), react.warnings.join(" | "));
+check("the gap is documented in the repository", paths.includes("components/library/README.md"));
+const css = react.files.find((f) => f.path === "app/globals.css").content;
+check("brand tokens in the stylesheet", css.includes("--brand-accent: #7a4de0"));
+check("the preview's own section styles are carried over", css.includes(".band.tinted") && css.includes(".hero .hero-bg"));
+check("no studio-hosted image URLs survive", !react.files.some((f) => f.encoding === "utf-8" && f.content.includes("/api/projects/")) , "a generated site cannot reach the studio");
+check("studio images are collected for copying", Array.isArray(collectStudioAssets(moved.blueprint)));
+
+console.log("\nAngular emit (the target that carries the library)");
+check("a site with careers components targets Angular", recommendedTarget(moved.blueprint) === "angular");
+const ng = emitAngularApp(moved.blueprint, { studioProjectId: "smoke" });
+const ngPaths = ng.files.map((f) => f.path);
+check("a complete Angular workspace", ["package.json", "angular.json", "tsconfig.json", "tsconfig.app.json", "src/main.ts", "src/index.html", "src/app/app.module.ts", "src/app/section.component.html", "vercel.json", ".npmrc"].every((p) => ngPaths.includes(p)), ngPaths.join(", "));
+const ngPkg = JSON.parse(ng.files.find((f) => f.path === "package.json").content);
+check("the approved library is a real dependency", ngPkg.dependencies[registry.package.name] === `^${registry.package.version}`, JSON.stringify(ngPkg.dependencies[registry.package.name]));
+const ngModule = ng.files.find((f) => f.path === "src/app/app.module.ts").content;
+check("its NgModule is imported", ngModule.includes(registry.package.ngModule) && ngModule.includes(`from "${registry.package.name}"`));
+const jobsTpl = ng.files.find((f) => f.path === "src/app/pages/jobs/jobs.component.html").content;
+check("pages bind the library's real selectors", jobsTpl.includes("<lib-zm-search") && jobsTpl.includes("<lib-jobs-list"));
+check("the components are reported as running, not gapped", ng.libraryComponents.includes("SearchComponent") && ng.libraryComponents.length > 0, ng.libraryComponents.join(", "));
+// The library reads its tenant out of storage in service constructors, so the
+// seeding has to be in main.ts ahead of bootstrap or every request goes out
+// pointed at nothing.
+const ngMain = ng.files.find((f) => f.path === "src/main.ts").content;
+check("the tenant is seeded before bootstrap", ngMain.indexOf("applyCareersConfig()") < ngMain.indexOf("bootstrapModule"));
+const careers = ng.files.find((f) => f.path === "src/app/careers.config.ts").content;
+check("every storage key the library reads is seeded", ["APIENDPOINT", "APIENDPOINTNEW", "TENANTAPIURL", "COMPANYID", "COMPANYURL", "DOMAIN"].every((k) => careers.includes(`"${k}"`)));
+// The library derives its tenant from location.hostname off localhost, and the
+// API answers an unknown domain with 200 and no jobs — so the interceptor that
+// pins it is what makes a deployed link show the same roles as the preview.
+check("the tenant is pinned by an interceptor", ngPaths.includes("src/app/careers-tenant.interceptor.ts"));
+check("the interceptor is registered", ngModule.includes("CareersTenantInterceptor") && ngModule.includes("HTTP_INTERCEPTORS"));
+const interceptor = ng.files.find((f) => f.path === "src/app/careers-tenant.interceptor.ts").content;
+check("it rewrites domain and companyId", interceptor.includes('body.set("domain"') && interceptor.includes('body.set("companyId"'));
+check("the pinning is reported as a note", ng.notes.some((n) => n.includes("pinned to")), ng.notes.join(" | "));
+check("no studio-hosted image URLs survive", !ng.files.some((f) => f.encoding === "utf-8" && f.content.includes("/api/projects/")));
+
+console.log("\nDeploy guard rails");
+process.env.BASE_SITE_REPO = "acme/career-site-base";
+check("the approved base repo is refused as a destination", Boolean(refusedDestination("https://github.com/ACME/career-site-base.git")), "compared by owner/name, not by string");
+check("an ordinary destination is accepted", refusedDestination("acme/careers-site") === null);
+check("nonsense is refused", Boolean(refusedDestination("not a repo")));
+check("generated paths are recognised", isGeneratedPath("app/page.tsx") && isGeneratedPath("blueprint.json"));
+check("hand-written files are left alone", !isGeneratedPath(".github/workflows/deploy.yml") && !isGeneratedPath("LICENSE"));
+
 const outDir = path.join(ROOT, "..", ".data", "smoke");
 if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
 writeFileSync(path.join(outDir, "jobs.component.html"), jobsTemplate.content);
 writeFileSync(path.join(outDir, "design-summary.txt"), rendered);
+writeFileSync(path.join(outDir, "react-home-page.tsx"), homePage);
 console.log(`\nWrote sample output to .data/smoke/`);
 
 // `--seed` leaves the demo site in the store as a real project, so the studio

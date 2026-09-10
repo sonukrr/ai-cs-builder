@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto";
 import type {
   Blueprint,
   BlueprintVersion,
+  Deployment,
+  DeployTarget,
   Project,
   PublishRequest,
 } from "@/lib/blueprint/schema";
@@ -370,5 +372,109 @@ export const store = {
     return (
       (await readJson<PublishRequest[]>(path.join(ROOT, projectId, "publish-requests.json"))) ?? []
     );
+  },
+
+  /**
+   * Where this project publishes to.
+   *
+   * One record per project, overwritten rather than appended, because it is a
+   * setting and not an event — the events are the deployments below. Stored the
+   * moment an administrator supplies it so the second publish does not ask
+   * again, and so the deploy agent has a destination it did not choose.
+   */
+  async saveDeployTarget(
+    projectId: string,
+    target: Omit<DeployTarget, "savedAt"> & { savedAt?: string },
+  ): Promise<DeployTarget> {
+    const record: DeployTarget = {
+      ...target,
+      savedAt: target.savedAt ?? new Date().toISOString(),
+    };
+    await writeJson(path.join(await projectDir(projectId), "deploy-target.json"), record);
+    return record;
+  },
+
+  async getDeployTarget(projectId: string): Promise<DeployTarget | null> {
+    return readJson<DeployTarget>(path.join(ROOT, projectId, "deploy-target.json"));
+  },
+
+  /**
+   * Opens a deployment record.
+   *
+   * Written before anything is pushed, and updated in place as the publish
+   * proceeds, so a deployment that dies half-way still leaves a record saying
+   * which version was being published and where — the alternative is a live
+   * site nobody can trace back to a version.
+   */
+  async createDeployment(input: {
+    projectId: string;
+    version: number;
+    publishRequestId?: string;
+    requestedBy?: string;
+    repo: string;
+    branch: string;
+    target: Deployment["target"];
+    vercelProject?: string;
+  }): Promise<Deployment> {
+    const deployment: Deployment = {
+      id: randomUUID(),
+      projectId: input.projectId,
+      version: input.version,
+      publishRequestId: input.publishRequestId ?? "",
+      requestedBy: input.requestedBy ?? "company-admin",
+      startedAt: new Date().toISOString(),
+      finishedAt: "",
+      status: "running",
+      repo: input.repo,
+      branch: input.branch,
+      target: input.target,
+      commitSha: "",
+      commitUrl: "",
+      filesPushed: 0,
+      vercelProject: input.vercelProject ?? "",
+      vercelDeploymentId: "",
+      url: "",
+      inspectorUrl: "",
+      pendingComponents: [],
+      warnings: [],
+      summary: "",
+    };
+
+    const file = path.join(await projectDir(input.projectId), "deployments.json");
+    const existing = (await readJson<Deployment[]>(file)) ?? [];
+    existing.push(deployment);
+    await writeJson(file, existing);
+    return deployment;
+  },
+
+  async updateDeployment(
+    projectId: string,
+    deploymentId: string,
+    patch: Partial<Deployment>,
+  ): Promise<Deployment> {
+    const file = path.join(await projectDir(projectId), "deployments.json");
+    const existing = (await readJson<Deployment[]>(file)) ?? [];
+    const index = existing.findIndex((record) => record.id === deploymentId);
+    if (index === -1) throw new Error(`No deployment ${deploymentId}`);
+
+    const updated: Deployment = {
+      ...existing[index],
+      ...patch,
+      id: existing[index].id,
+      projectId: existing[index].projectId,
+    };
+    existing[index] = updated;
+    await writeJson(file, existing);
+    return updated;
+  },
+
+  async listDeployments(projectId: string): Promise<Deployment[]> {
+    const records = (await readJson<Deployment[]>(path.join(ROOT, projectId, "deployments.json"))) ?? [];
+    return [...records].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  },
+
+  async getDeployment(projectId: string, deploymentId: string): Promise<Deployment | null> {
+    const records = await store.listDeployments(projectId);
+    return records.find((record) => record.id === deploymentId) ?? null;
   },
 };

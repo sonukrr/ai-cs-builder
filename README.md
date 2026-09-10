@@ -69,6 +69,9 @@ Base site via GitHub ────┘                                            
                                                                     React preview  Angular emit
                                                                                         │
                                                                               company branch → publish request
+                                                                                        │
+                                                        React emit ──→ GitHub push ──→ Vercel deployment
+                                                                    (deploy agent)
 ```
 
 The blueprint is the source of truth. The agent never writes a blueprint
@@ -87,6 +90,12 @@ hard ceiling on what a single edit can do.
 | Web research (Tavily) | [`src/lib/providers/research/`](src/lib/providers/research/) |
 | Orchestrator, tools, prompt, capabilities | [`src/lib/agent/`](src/lib/agent/) |
 | Angular emitter | [`src/lib/emit/angular.ts`](src/lib/emit/angular.ts) |
+| React (Next.js) emitter | [`src/lib/emit/react/`](src/lib/emit/react/) |
+| Angular emitter (deployable app with the real library) | [`src/lib/emit/angular-app/`](src/lib/emit/angular-app/) |
+| Deploy agent, its tools | [`src/lib/agent/deploy-agent.ts`](src/lib/agent/deploy-agent.ts), [`src/lib/agent/deploy-tools.ts`](src/lib/agent/deploy-tools.ts) |
+| GitHub destination (REST + MCP), Vercel | [`src/lib/providers/github/deploy.ts`](src/lib/providers/github/deploy.ts), [`src/lib/providers/vercel/`](src/lib/providers/vercel/) |
+| Shared GitHub MCP session, base site over MCP | [`src/lib/providers/github/mcp-session.ts`](src/lib/providers/github/mcp-session.ts), [`src/lib/providers/github/base-mcp.ts`](src/lib/providers/github/base-mcp.ts) |
+| Borrowed MCP OAuth credentials (Figma + GitHub) | [`src/lib/providers/mcp-oauth.ts`](src/lib/providers/mcp-oauth.ts) |
 | Screens | [`src/app/projects/new/`](src/app/projects/new/), [`src/app/plan/`](src/app/plan/), [`src/app/studio/`](src/app/studio/) |
 
 ---
@@ -412,7 +421,230 @@ The write guard rails live in the provider, not in the prompt
 ([`src/lib/providers/github/types.ts`](src/lib/providers/github/types.ts)):
 `main`, `master`, `production` and `release` are refused outright, and commits
 are restricted to an allow-list of configuration paths. A conversational request
-cannot escalate into rewriting the application.
+cannot escalate into rewriting the application. Both backends apply them —
+a guard rail only one backend enforces is not a guard rail.
+
+### Reading it through MCP
+
+`GITHUB_PROVIDER=mcp` moves the whole GitHub integration onto GitHub's MCP
+server: the base site is read with `get_file_contents`, branched with
+`create_branch` and committed with `push_files`
+([`base-mcp.ts`](src/lib/providers/github/base-mcp.ts)), and publishing follows
+the same variable. Both backends share one connection and one tool-discovery
+path ([`mcp-session.ts`](src/lib/providers/github/mcp-session.ts)).
+
+One read has no MCP equivalent: structure discovery needs every path in the
+repository, and `get_file_contents` lists a single directory. So the recursive
+listing goes through the git data API when `GITHUB_TOKEN` allows it, and
+otherwise falls back to a bounded breadth-first walk — which says so when it
+stops early, because an incomplete tree makes an incomplete plan.
+
+A detail worth knowing if you extend this: GitHub's MCP server answers a file
+read with *two* content blocks — a text block reading "successfully downloaded
+text file (SHA: …)" and a resource block holding the file. Reading only the text
+blocks gets you the progress note, and reading both prefixes every file with it,
+which is enough to stop a `config/site.json` from parsing. `textOf` therefore
+treats an attached resource as the answer and the text as commentary.
+
+---
+
+## Publishing
+
+"Request publishing" opens a panel, and the panel does two things: it files the
+publish request the governance flow has always filed, and it hands the project
+to a **deploy agent** that puts the site on the internet.
+
+```
+Site Blueprint v7
+      │  emitAngularApp   or   emitReactSite
+      ▼
+Angular app with zm-careers-lib   |   Next.js app, careers sections gapped
+      │  push, one commit         GitHub REST or GitHub MCP
+      ▼
+github.com/<owner>/<repo>
+      │  deploy                   Vercel: from the commit, or from the files
+      ▼
+https://<project>.vercel.app
+```
+
+### Two targets, and why the choice is not a preference
+
+The approved careers components are `zm-careers-lib`, an **Angular 15** library:
+its components are declared in an NgModule and constructed by Angular's
+injector. No packaging makes them render inside React — installing the library
+into a Next.js app would download it and render nothing. So the target is a
+consequence of the blueprint, not a taste:
+
+| | **Angular** (default) | **React (Next.js)** |
+|---|---|---|
+| Careers components | the real ones — search, listings, facets, apply | labelled gaps |
+| Chosen when | the site uses any of them | the site is presentation only |
+| Emitter | [`emit/angular-app/`](src/lib/emit/angular-app/) | [`emit/react/`](src/lib/emit/react/) |
+
+`recommendedTarget(blueprint)` decides; the publish panel shows both with what
+each costs, and the choice is stored on the project.
+
+The Angular target is a port of the preview host, which is the shortest correct
+route to a deployable site: `preview-app/` is *already* an Angular app running
+the real library against the same blueprint. The generated app installs
+`zm-careers-lib` from npm, imports `ZmCareerSitesLibModule`, and binds the
+library's genuine selectors and `@Input()` names from
+[`emit/angular.ts`](src/lib/emit/angular.ts). Verified end to end: a generated
+site builds, and its job list renders live roles from the careers API.
+
+### The one thing to know before an Angular site goes live
+
+The library resolves its tenant from **the hostname it is served from** once
+that hostname is not `localhost`:
+
+```js
+getDomain() {
+  if (window.location.hostname == "localhost") return sessionStorage.getItem("DOMAIN") || "";
+  return window.location.hostname;   // ← on any real deployment
+}
+```
+
+The careers API answers an unrecognised domain with **`200` and no jobs** —
+measured, not inferred. So a site on a `*.vercel.app` hostname renders every
+component perfectly and lists nothing, with nothing on the console to explain
+it. Point the careers domain at the deployment (Vercel → Settings → Domains).
+`emitAngularApp` returns that as a warning on every publish and the generated
+README repeats it.
+
+Two smaller things the same investigation turned up, both handled in the emitted
+app: a committed `.npmrc` with `legacy-peer-deps=true`, because Vercel runs a
+bare `npm install` and this dependency tree needs it; and
+`allowedCommonJsDependencies` for `google-libphonenumber`, which the library
+pulls in.
+
+### Why the site is generated, not hand-written
+
+`emitReactSite` is a **port of the preview host**, element for element and class
+for class — `components/sections/*` in the generated repository are the same
+markup as `preview-app/src/app/static-section.component.ts`, and
+`app/globals.css` is its stylesheet plus the brand's design tokens. An
+administrator approves what the preview showed them; a generator that quietly
+improved on it would ship something nobody signed off.
+
+What arrives is ordinary code: literal JSX with the content inline, one route
+per blueprint page, no runtime interpreter over `blueprint.json`. The blueprint
+travels along for provenance. Anyone can read the repository and change it —
+and the README in it says plainly that the next publish overwrites what they
+changed, because the blueprint is still the site.
+
+### What the React target cannot carry
+
+`zm-careers-lib` is an **Angular 15** library, so job search, job listings,
+filters, pagination, the application form and resume upload cannot render in a
+React site. They emit as `PendingIntegration`: a labelled gap that carries the
+settings chosen in the studio, plus a `components/library/README.md` naming
+every one of them and the three ways to close the gap.
+
+Nothing imitates them. A search box that does not search, or a list of invented
+roles, is worse in front of a real candidate than an obvious gap — which is the
+same rule the component registry exists to enforce. The publish panel puts this
+above the button, the deployment record keeps it, and the agent is instructed to
+volunteer it rather than wait to be asked.
+
+### Where it goes
+
+The destination is **never inferred**. An administrator types it into the panel
+(or names it in the conversation, which reaches the same place through
+`hand_off_to_deploy`), and it is stored on the project so a republish does not
+ask again. Three rails are in the provider rather than the prompt
+([`src/lib/providers/github/deploy.ts`](src/lib/providers/github/deploy.ts)):
+
+- the approved base repository is refused as a destination, whatever anyone
+  types — comparing owner and name, so neither a URL nor a `.git` suffix nor a
+  change of case gets a generated site pushed over the thing every project
+  starts from;
+- a repository holding files the studio did not generate is refused until the
+  administrator has explicitly agreed to publish over it;
+- a push is one commit whose tree matches the generated site under `app/`,
+  `components/`, `lib/` and `public/images/`, and leaves everything else alone.
+  A page deleted in the studio stops being live; a LICENSE somebody added
+  survives.
+
+### Two GitHub backends
+
+```
+GITHUB_PROVIDER=mcp            # both halves: read the base site, push the build
+GITHUB_PROVIDER=rest           # the GitHub API with GITHUB_TOKEN
+GITHUB_PROVIDER=mock           # stand-in base repo; generate and check, push nothing
+
+GITHUB_DEPLOY_PROVIDER=        # set only to make publishing differ from the above
+```
+
+`GITHUB_DEPLOY_PROVIDER` falls back to `GITHUB_PROVIDER`, then to whatever is
+configured, then to the stand-in — so one variable answers "which GitHub backend
+is this deployment using". The MCP backend exists because an administrator's idea of "my GitHub
+access" is increasingly the MCP server they already connected. It discovers
+tools by intent rather than by name and shapes arguments from each tool's own
+advertised schema, like the Figma MCP backend it borrows from.
+
+It is a hybrid, and the seams are reported rather than hidden. GitHub's server
+(44 tools at the time of writing) covers most of a publish — `push_files` writes
+the whole site in one commit, `create_repository`, `create_branch` and
+`delete_file` do the rest — but two things it genuinely cannot do:
+
+- **images.** Its file tools document their `content` as "Do not base64-encode
+  it; this server does that before calling the REST API", so there is no way to
+  hand one a binary. Images go through the git data API in a second commit.
+- **listing a tree.** Working out which generated files a republish should
+  remove needs a recursive tree, which no MCP tool provides, so that read goes
+  through REST as well.
+
+Both need a personal access token, which is why the MCP backend still wants one
+even though its bearer may be an OAuth credential. And because `delete_file` is
+one path per call and one commit per call, deletions are capped per publish; past
+the cap the publish says what it left and names the REST backend, which removes
+everything in the same commit as the push.
+
+### Authenticating the MCP backend
+
+`GITHUB_MCP_TOKEN`, falling back to `GITHUB_TOKEN`. The studio can also borrow
+the OAuth token Claude Code cached for a `github` MCP server — the mechanism is
+shared with Figma in
+[`src/lib/providers/mcp-oauth.ts`](src/lib/providers/mcp-oauth.ts), which reads
+`~/.claude/.credentials.json`, refreshes an expired token against the
+authorization server named in the cached discovery state, and writes the
+rotation back so the studio and Claude Code keep sharing one credential.
+
+That path is implemented but needs an OAuth app you registered: GitHub's
+authorization server rejects dynamic client registration, so `claude mcp add
+--transport http github https://api.githubcopilot.com/mcp/` followed by `/mcp`
+cannot complete the flow on its own — it reports *"Incompatible auth server:
+does not support dynamic client registration"*. Pass `--client-id` if you have
+one; otherwise a token is the shorter road.
+
+### Vercel, with and without a token
+
+With `VERCEL_TOKEN`, the studio finds or creates the project, links it to the
+repository where Vercel's GitHub app allows it, deploys, waits for the build,
+and reads the build log if it fails. A failed build the agent can attribute to a
+generated file it may patch and re-push — twice, then it stops and quotes the
+log.
+
+Without a token nothing is faked: the code is pushed, and the report says to
+import the repository once at vercel.com/new, after which Vercel builds every
+push on its own. A project Vercel would not link deploys by direct file upload
+instead, and the deployment record says that later pushes will not deploy
+themselves.
+
+### Why a second agent
+
+The studio agent's world is the blueprint, and every rail it has is about not
+claiming capability the library does not have. Publishing fails differently — a
+repository that already holds something, an unlinked Vercel project, a build
+that breaks on one file — and recovering needs judgement about a build log, not
+about a career site. Folding that into the studio agent would put tools that can
+overwrite a repository in scope for every "make the hero bigger" turn. So the
+handoff is explicit, and what is handed over is the blueprint: the same thing
+the preview renders.
+
+The deployment record is written by code from the workspace, not by a tool the
+model chooses to call, so it cannot say `succeeded` because the model believed
+it had. The model's contribution is the prose summary, stored as prose.
 
 ---
 
@@ -424,7 +656,7 @@ own tools will work and can say what is missing instead of failing opaquely.
 
 `IMPORT_FIGMA` · `START_FROM_BASE` · `DESIGN_FIDELITY` · `MODIFY_SITE` ·
 `ADD_FUNCTIONALITY` · `MANAGE_IMAGERY` · `RESEARCH_OR_INSPIRATION` ·
-`VERSION_AND_PREVIEW` · `REQUEST_PUBLISH`
+`VERSION_AND_PREVIEW` · `REQUEST_PUBLISH` · `DEPLOY_SITE`
 
 ### Research
 
@@ -543,7 +775,11 @@ available.
 
 Enforced in code, not in the prompt:
 
-- Nothing deploys. `REQUEST_PUBLISH` validates the blueprint and files a request.
+- Deploying is separate from editing, and separate from asking to publish.
+  `REQUEST_PUBLISH` validates the blueprint and files a request; it deploys
+  nothing. `DEPLOY_SITE` publishes, only to a destination an administrator
+  supplied, never over the approved base repository, and never over somebody
+  else's files without explicit agreement.
 - Protected branches are refused by the provider.
 - Commits are restricted to an allow-list of configuration paths.
 - Functional capability comes only from the approved registry; a request the

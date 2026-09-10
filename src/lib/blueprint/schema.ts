@@ -240,6 +240,82 @@ export const PublishRequest = z.object({
 });
 export type PublishRequest = z.infer<typeof PublishRequest>;
 
+/**
+ * Where a project's generated React site is published.
+ *
+ * Held per project rather than per deployment, and never inferred: an
+ * administrator names the repository once and every later publish goes to the
+ * same place. `allowNonEmpty` records that they were shown the repository
+ * already had files in it and said to go ahead — a decision the deploy agent
+ * must never make for them.
+ */
+/**
+ * Which application a publish generates.
+ *
+ * Not a preference so much as a consequence. The approved careers components
+ * are an Angular 15 library, so a site that uses any of them can only work as
+ * an Angular application — `angular` installs the real library and renders live
+ * jobs. `react` produces a Next.js app and marks every functional section as a
+ * labelled gap, which is the right answer only for a site that is presentation
+ * from top to bottom.
+ */
+export const DeployTargetKind = z.enum(["angular", "react"]);
+export type DeployTargetKind = z.infer<typeof DeployTargetKind>;
+
+export const DeployTarget = z.object({
+  /** owner/name. Stored normalised, whatever shape it was typed in. */
+  repo: z.string().min(1),
+  branch: z.string().default("main"),
+  /** Defaults to Angular, because that is the one that can carry the library. */
+  target: DeployTargetKind.default("angular"),
+  /** Vercel project name; defaults to one derived from the company name. */
+  vercelProject: z.string().default(""),
+  /** Applies only when the studio is the one creating the repository. */
+  private: z.boolean().default(true),
+  allowNonEmpty: z.boolean().default(false),
+  savedAt: z.string(),
+  savedBy: z.string().default("company-admin"),
+});
+export type DeployTarget = z.infer<typeof DeployTarget>;
+
+/**
+ * One publish of a version to a repository, and what became of it.
+ *
+ * Append-only, like the version history and for the same reason: "what is on
+ * the live site, and which version is it" has to be answerable later, including
+ * for the attempts that failed.
+ */
+export const Deployment = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  /** The blueprint version that was generated. */
+  version: z.number().int().positive(),
+  /** The publish request this deployment answers, when there is one. */
+  publishRequestId: z.string().default(""),
+  requestedBy: z.string().default("company-admin"),
+  startedAt: z.string(),
+  finishedAt: z.string().default(""),
+  status: z.enum(["running", "succeeded", "failed"]).default("running"),
+  repo: z.string().default(""),
+  branch: z.string().default(""),
+  /** Which application was generated. Older records predate the choice. */
+  target: DeployTargetKind.default("react"),
+  commitSha: z.string().default(""),
+  commitUrl: z.string().default(""),
+  filesPushed: z.number().int().nonnegative().default(0),
+  vercelProject: z.string().default(""),
+  vercelDeploymentId: z.string().default(""),
+  /** The live URL, once there is one. */
+  url: z.string().default(""),
+  inspectorUrl: z.string().default(""),
+  /** Approved components the React build could not render. */
+  pendingComponents: z.array(z.string()).default([]),
+  warnings: z.array(z.string()).default([]),
+  /** What the deploy agent said it did, in one paragraph. */
+  summary: z.string().default(""),
+});
+export type Deployment = z.infer<typeof Deployment>;
+
 export const Project = z.object({
   id: z.string(),
   name: z.string(),
@@ -254,7 +330,9 @@ export const Project = z.object({
    * between the design and what was built. Base-site projects never enter it —
    * they have no design to be compared against.
    */
-  status: z.enum(["planning", "reviewing", "ready", "publish-requested"]).default("planning"),
+  status: z
+    .enum(["planning", "reviewing", "ready", "publish-requested", "deployed"])
+    .default("planning"),
   currentVersion: z.number().int().nonnegative().default(0),
 });
 export type Project = z.infer<typeof Project>;

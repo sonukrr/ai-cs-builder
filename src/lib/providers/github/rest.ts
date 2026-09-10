@@ -25,7 +25,7 @@ const API = "https://api.github.com";
  * files the agent *creates* on the company branch, which is why the same names
  * appear in WRITABLE_PATTERNS.
  */
-const CONFIG_CANDIDATES = [
+export const CONFIG_CANDIDATES = [
   "site.config.json",
   "theme.json",
   "content.json",
@@ -41,7 +41,7 @@ const CONFIG_CANDIDATES = [
  * Ordered most-explanatory first, and capped when read, because these are pure
  * context for the model rather than anything it may change.
  */
-const KEY_FILE_CANDIDATES = [
+export const KEY_FILE_CANDIDATES = [
   "src/app/app-routing.module.ts",
   "src/app/app.module.ts",
   "src/app/app.component.html",
@@ -89,20 +89,11 @@ export class GitHubRestProvider implements BaseSiteProvider {
     const meta = await this.api<{ default_branch: string }>(`/repos/${owner}/${name}`);
     const defaultBranch = meta.default_branch;
 
-    const treeResponse = await this.api<{
-      tree: { path: string; type: string }[];
-      truncated: boolean;
-    }>(`/repos/${owner}/${name}/git/trees/${encodeURIComponent(defaultBranch)}?recursive=1`);
-
-    if (treeResponse.truncated) {
+    const listing = await this.listTree(`${owner}/${name}`, defaultBranch);
+    if (listing.truncated) {
       warnings.push("The repository tree was truncated by GitHub; discovery may be incomplete.");
     }
-
-    const tree = treeResponse.tree
-      .filter((entry) => entry.type === "blob")
-      .map((entry) => entry.path)
-      // node_modules and build output are noise for structure discovery.
-      .filter((p) => !/^(node_modules|dist|build|\.next|\.git)\//.test(p));
+    const tree = listing.tree;
 
     const readme = await this.readFile(owner, name, "README.md", defaultBranch).catch(() => "");
     const framework = detectFramework(tree);
@@ -155,6 +146,33 @@ export class GitHubRestProvider implements BaseSiteProvider {
       components: discoverComponents(tree),
       pages,
       warnings,
+    };
+  }
+
+  /**
+   * Every file path on a ref, in one call.
+   *
+   * Public because the MCP backend needs it: MCP lists a single directory at a
+   * time and structure discovery needs the whole tree, so this is the one read
+   * that backend delegates here. Build output and dependencies are dropped —
+   * they are noise for discovery and most of the bytes.
+   */
+  async listTree(repo: string, ref: string): Promise<{ tree: string[]; truncated: boolean }> {
+    const parsed = parseRepo(repo);
+    if (!parsed) throw new Error(`"${repo}" is not a GitHub repository reference`);
+    const { owner, name } = parsed;
+
+    const response = await this.api<{
+      tree: { path: string; type: string }[];
+      truncated: boolean;
+    }>(`/repos/${owner}/${name}/git/trees/${encodeURIComponent(ref)}?recursive=1`);
+
+    return {
+      tree: response.tree
+        .filter((entry) => entry.type === "blob")
+        .map((entry) => entry.path)
+        .filter((path) => !/^(node_modules|dist|build|\.next|\.git)\//.test(path)),
+      truncated: response.truncated,
     };
   }
 

@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { CapabilityState } from "@/lib/agent/capabilities";
+import { ImportIcon, LayersIcon, ArrowRightIcon } from "./icons";
 
 interface Props {
   figmaState: CapabilityState;
@@ -58,51 +59,68 @@ export function StartPoints({ figmaState, figmaDetail, baseState, baseDetail }: 
 
   return (
     <>
-      <div className="cards">
-        <div className="card">
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <h2>Import an existing Figma design</h2>
-            {figmaState === "demo" && <span className="tag tag-warn">demo</span>}
+      <div className="l-entry-cards">
+        <section className="l-entry l-entry--base">
+          <div className="l-entry-top">
+            <span className="l-entry-icon l-entry-icon--alt">
+              <LayersIcon size={22} />
+            </span>
+            {baseState === "demo" && <span className="l-pill l-pill--demo">Demo</span>}
+            {baseState === "needs-config" && <span className="l-pill l-pill--setup">Setup</span>}
           </div>
-          <p>
-            Paste a Figma file link. The agent reads the design section by section, maps anything
-            functional onto an approved component, and shows you a plan before it builds anything.
+          <h3 className="l-entry-title">Start from the base site</h3>
+          <p className="l-entry-desc">
+            Start with the approved career-site foundation and customise it using AI agents — brand,
+            pages, copy and the functionality you need — just by describing what you want.
+          </p>
+          <p className="l-entry-note">{baseDetail}</p>
+          <button
+            className="l-btn l-btn--ghost l-entry-cta"
+            onClick={startBase}
+            disabled={busy !== null || baseState === "needs-config"}
+          >
+            {busy === "base" ? "Starting…" : "Start from base"}
+            <ArrowRightIcon size={16} />
+          </button>
+        </section>
+
+        <section className="l-entry l-entry--figma">
+          <div className="l-entry-top">
+            <span className="l-entry-icon">
+              <ImportIcon size={22} />
+            </span>
+            {figmaState === "demo" && <span className="l-pill l-pill--demo">Demo</span>}
+          </div>
+          <h3 className="l-entry-title">Import an existing Figma design</h3>
+          <p className="l-entry-desc">
+            Bring an existing design into the Careersite Builder. The agent reads it section by
+            section, maps anything functional onto an approved component, and shows you a plan
+            before it builds a working career site.
           </p>
           <input
-            className="field"
+            className="l-input"
             placeholder="https://www.figma.com/design/…"
             value={figmaUrl}
             onChange={(event) => setFigmaUrl(event.target.value)}
             spellCheck={false}
           />
-          <div className="faint" style={{ fontSize: 12.5 }}>{figmaDetail}</div>
-          <button className="btn btn-primary" onClick={startFigma} disabled={busy !== null}>
-            {busy === "figma" ? "Starting…" : figmaState === "demo" && !figmaUrl ? "Import the demo design" : "Import design"}
+          <p className="l-entry-note">{figmaDetail}</p>
+          <button
+            className="l-btn l-btn--primary l-entry-cta"
+            onClick={startFigma}
+            disabled={busy !== null}
+          >
+            {busy === "figma"
+              ? "Starting…"
+              : figmaState === "demo" && !figmaUrl
+                ? "Import the demo design"
+                : "Import design"}
+            <ArrowRightIcon size={16} />
           </button>
-        </div>
-
-        <div className="card">
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <h2>Start from the base site</h2>
-            {baseState === "demo" && <span className="tag tag-warn">demo</span>}
-            {baseState === "needs-config" && <span className="tag tag-bad">setup</span>}
-          </div>
-          <p>
-            Begin from the approved career-site foundation and customise it — brand, pages, copy and
-            the functionality you need — by describing what you want.
-          </p>
-          <div className="faint" style={{ fontSize: 12.5 }}>{baseDetail}</div>
-          <button className="btn" onClick={startBase} disabled={busy !== null || baseState === "needs-config"}>
-            {busy === "base" ? "Starting…" : "Start from base"}
-          </button>
-        </div>
+        </section>
       </div>
 
-      {error && (
-        <div className="notice" style={{ borderLeftColor: "var(--bad)" }}>
-          {error}
-        </div>
-      )}
+      {error && <div className="l-error">{error}</div>}
     </>
   );
 }

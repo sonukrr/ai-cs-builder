@@ -25,17 +25,25 @@ integration falls back to a demo backend that exercises the real code path.
 **`zm-careers-lib` is an Angular 15 library, not React.** The plan assumes a
 Next.js stack throughout, and the package README's example markup (`<zm-search>`)
 is stale — the compiled selector is `<lib-zm-search>`. Rather than pick one
-framework and lose something, the Site Blueprint is framework-agnostic and has
-two renderers downstream:
+framework and lose something, the Site Blueprint is framework-agnostic and
+everything below it is a renderer:
 
 | Renderer | Where | What it is for |
 |---|---|---|
 | Angular preview host — [`preview-app/`](preview-app/) | live, in an iframe | Renders the blueprint with the **real** `zm-careers-lib` components |
-| Angular emitter — [`src/lib/emit/angular.ts`](src/lib/emit/angular.ts) | build output | The static site that ships, same markup, generated ahead of time |
+| Angular emitter — [`src/lib/emit/angular.ts`](src/lib/emit/angular.ts) | build output | Page templates and config, same markup, generated ahead of time |
+| Angular app emitter — [`src/lib/emit/angular-app/`](src/lib/emit/angular-app/) | published site | A deployable application around those templates, with the library installed |
+| React emitter — [`src/lib/emit/react/`](src/lib/emit/react/) | published site | A Next.js site, for a blueprint with no careers components in it |
 
-Both produce the genuine `<lib-zm-search>`, `<lib-facets>`, `<lib-jobs-list>`
-markup with props bound onto the real `@Input` names. The preview is not a
-mock-up of the library — it *is* the library.
+The first three produce the genuine `<lib-zm-search>`, `<lib-facets>`,
+`<lib-jobs-list>` markup with props bound onto the real `@Input` names. The
+preview is not a mock-up of the library — it *is* the library, which is why the
+published Angular app is a port of the preview rather than a second design.
+
+The React emitter is the exception that proves the constraint: it renders every
+presentation section faithfully and cannot render a single careers component,
+because those need an Angular injector to exist at all. It marks each one as a
+labelled gap and says so on every publish — see [Publishing](#publishing).
 
 **The component registry is generated, not written.**
 [`scripts/build-registry.mjs`](scripts/build-registry.mjs) downloads the
@@ -92,6 +100,7 @@ hard ceiling on what a single edit can do.
 | Angular emitter | [`src/lib/emit/angular.ts`](src/lib/emit/angular.ts) |
 | React (Next.js) emitter | [`src/lib/emit/react/`](src/lib/emit/react/) |
 | Angular emitter (deployable app with the real library) | [`src/lib/emit/angular-app/`](src/lib/emit/angular-app/) |
+| Studio images copied into a generated site | [`src/lib/emit/assets.ts`](src/lib/emit/assets.ts) |
 | Deploy agent, its tools | [`src/lib/agent/deploy-agent.ts`](src/lib/agent/deploy-agent.ts), [`src/lib/agent/deploy-tools.ts`](src/lib/agent/deploy-tools.ts) |
 | GitHub destination (REST + MCP), Vercel | [`src/lib/providers/github/deploy.ts`](src/lib/providers/github/deploy.ts), [`src/lib/providers/vercel/`](src/lib/providers/vercel/) |
 | Shared GitHub MCP session, base site over MCP | [`src/lib/providers/github/mcp-session.ts`](src/lib/providers/github/mcp-session.ts), [`src/lib/providers/github/base-mcp.ts`](src/lib/providers/github/base-mcp.ts) |
@@ -492,10 +501,12 @@ library's genuine selectors and `@Input()` names from
 [`emit/angular.ts`](src/lib/emit/angular.ts). Verified end to end: a generated
 site builds, and its job list renders live roles from the careers API.
 
-### The one thing to know before an Angular site goes live
+### The tenant, and why a deployed site would otherwise list nothing
 
-The library resolves its tenant from **the hostname it is served from** once
-that hostname is not `localhost`:
+`zm-careers-lib` takes its tenant from browser storage — `APIENDPOINTNEW`,
+`COMPANYID`, `COMPANYURL`, `DOMAIN`, read in service *constructors*, which is
+why `main.ts` seeds them before `bootstrapModule`. Except for two of them, on
+any real hostname:
 
 ```js
 getDomain() {
@@ -505,17 +516,41 @@ getDomain() {
 ```
 
 The careers API answers an unrecognised domain with **`200` and no jobs** —
-measured, not inferred. So a site on a `*.vercel.app` hostname renders every
-component perfectly and lists nothing, with nothing on the console to explain
-it. Point the careers domain at the deployment (Vercel → Settings → Domains).
-`emitAngularApp` returns that as a warning on every publish and the generated
-README repeats it.
+measured against the real API, not inferred. So left alone, a site on a
+`*.vercel.app` hostname renders every component perfectly and lists nothing,
+with nothing on the console to explain it.
 
-Two smaller things the same investigation turned up, both handled in the emitted
-app: a committed `.npmrc` with `legacy-peer-deps=true`, because Vercel runs a
-bare `npm install` and this dependency tree needs it; and
-`allowedCommonJsDependencies` for `google-libphonenumber`, which the library
-pulls in.
+The generated app therefore ships
+[`careers-tenant.interceptor.ts`](src/lib/emit/angular-app/runtime.ts), which
+rewrites `domain` and `companyId` onto every careers-API request. The library
+offers no hook for this, but every request goes through Angular's `HttpClient`,
+so an interceptor can put the tenant back on the way out. Verified by serving a
+generated site from `127.0.0.1` — the library's non-localhost path — where it
+*would* have sent `domain=127.0.0.1`: what went out was the configured domain,
+the API answered `200`, and ten real job cards rendered.
+
+The pin is deliberate and removable. While it is there the site asks about one
+tenant wherever it is deployed, which is right for a preview URL and wrong if
+the repository is ever reused for another company; once the site is served from
+the careers domain itself, the library derives the same values and the
+interceptor can be deleted. Publishing reports which tenant it pinned.
+
+Three smaller things the same investigation turned up:
+
+- a committed `.npmrc` with `legacy-peer-deps=true`, because Vercel runs a bare
+  `npm install` and this dependency tree needs it;
+- `allowedCommonJsDependencies` for `google-libphonenumber`, which the library
+  pulls in;
+- `TenantGroupId` comes from `localStorage.tenantId`, which nothing seeds —
+  `returnTenantHeader()` sends the header only when it is set. Search works
+  without it, so `careers.config.ts` leaves `tenantGroupId` empty rather than
+  guessing: a wrong group id is worse than no header.
+
+One thing that is **not** a bug, in case it costs somebody an afternoon: the
+careers API sits behind a WAF that rejects requests with a `HeadlessChrome`
+user agent. A headless test browser gets `403 Access Denied` from the edge —
+an HTML page, not the API — while a normal browser on the same page gets `200`.
+Set a normal user agent before concluding anything about the tenant.
 
 ### Why the site is generated, not hand-written
 
@@ -527,8 +562,11 @@ administrator approves what the preview showed them; a generator that quietly
 improved on it would ship something nobody signed off.
 
 What arrives is ordinary code: literal JSX with the content inline, one route
-per blueprint page, no runtime interpreter over `blueprint.json`. The blueprint
-travels along for provenance. Anyone can read the repository and change it —
+per blueprint page, no runtime interpreter over `blueprint.json`. Both entry
+points come from an Angular world, so a blueprint writes its parameters
+Angular's way — the base site's own router has `jobview/:jobUrl` — and the
+emitter translates `:id` to Next's `[id]` rather than rejecting the page. The
+blueprint travels along for provenance. Anyone can read the repository and change it —
 and the README in it says plainly that the next publish overwrites what they
 changed, because the blueprint is still the site.
 
@@ -564,6 +602,38 @@ ask again. Three rails are in the provider rather than the prompt
   `components/`, `lib/` and `public/images/`, and leaves everything else alone.
   A page deleted in the studio stops being live; a LICENSE somebody added
   survives.
+
+### When a publish cannot proceed
+
+Nothing in the panel is disabled except the Publish button while a publish is
+running. A disabled button with no explanation reads as a broken feature, and
+the one thing it used to guard — an empty repository field — is better said in
+a sentence. A blueprint with blocking validation issues publishes too, on the
+administrator's say-so, and the deploy agent reports what it could and could
+not generate rather than the studio refusing on their behalf.
+
+What *does* stop a publish is a credential that cannot write, and that one is
+worth catching early:
+
+```
+POST /repos/<owner>/<repo>/git/blobs → 403
+x-accepted-github-permissions: contents=write
+```
+
+A repository's `permissions` field reports the **user's** role, not the
+token's grants — a fine-grained token whose owner is an admin reports
+`push: true` and then fails every write. Nothing reveals the truth until
+something writes. So `checkWriteAccess` establishes it by writing: it creates
+one blob and throws it away. A blob no tree references is unreachable and
+pruned, so a pass leaves nothing behind, and a failure comes back carrying
+GitHub's own `x-accepted-github-permissions` header and the steps to fix it.
+
+It runs in two places. The publish panel checks the destination as soon as the
+repository is typed, so the field says `✓ Ready — empty, and the token can
+write to it` or names the missing permission before anything is generated. And
+`inspect_repository` runs it before the agent generates a site, because a
+credential problem is not one that retrying, patching or regenerating can
+change — the agent is instructed to stop and relay the remedy verbatim.
 
 ### Two GitHub backends
 
@@ -728,7 +798,13 @@ npm run build
 `npm run smoke` covers the registry extraction, the Figma mock backend, the band
 summarizer, plan → blueprint, the guard rails (inventing a component, setting an
 unsupported prop, a static section claiming to be functional), a three-operation
-conversational edit, and the Angular emit. `npm run seed` additionally writes a
+conversational edit, the Angular emit, and everything publishing added: the
+React emit (a complete Next.js app, careers components emitted as labelled gaps
+and *reported* as such, no studio-hosted URLs surviving), the Angular emit (a
+complete workspace, the library as a real dependency, its NgModule imported,
+the tenant seeded before bootstrap and pinned by the interceptor), and the
+deploy guard rails (the base repo refused as a destination, generated paths
+recognised, hand-written files left alone). `npm run seed` additionally writes a
 finished demo site into the store so the studio and preview can be clicked
 through with no API key.
 
@@ -745,6 +821,24 @@ The preview was verified in a real browser: the jobs page renders
 `lib-pagination`, with the filter rail showing Department, Location, Employment
 Type and the experience range, and a clean console.
 
+**Publishing was verified by building and running what it generates**, which is
+the only check that means anything for a code generator. Four generated Next.js
+sites compile with `next build` — including one exercising all nineteen section
+components, nested row and grid containers with a 300px sidebar, replicas and
+copied images. A generated Angular site installs `zm-careers-lib@2.8.3` from
+npm, builds (2.76 MB), and serves: `lib-zm-search`, `lib-facets`,
+`lib-filter-chips`, `lib-jobs-list`, `lib-job` and `lib-pagination` all render,
+the careers API answers `200`, and ten real roles appear with working Experience
+and Location facets. Served from `127.0.0.1`, the interceptor pins the tenant
+and the same ten roles appear. A plain `npm install` succeeds with the emitted
+`.npmrc`.
+
+The publish path itself was exercised end to end against a stand-in GitHub
+backend: the agent generated, inspected, "pushed", and reported *"Nothing was
+published — this run was a dry run"* rather than claiming success from a mock.
+The write preflight was verified against a real repository, where it returns
+GitHub's own `contents=write` requirement.
+
 The catalog and the data connector were verified against the running studio: the
 catalog serves 29 grouped items with no internal names leaked, adding a section
 suffixes a colliding id and refuses unapproved and internal components, and
@@ -760,14 +854,24 @@ directly: a non-image upload is rejected, `..` in an asset path 404s, and a
 `javascript:` colour or a `<script>` label in the placeholder URL is discarded
 or escaped.
 
-**Not verified:** the live Figma Dev Mode MCP connection, and the preview's
-**live** data mode. The MCP client is written against Figma's tool surface and
-is defensive about tool names and payload shapes, but has never run against a
-live server — the REST backend covers the same ground headless. For live
-preview data, the tenant handshake and job search were confirmed against
-`apipreprod1.zwayam.com` with `curl`, but the preview itself has only been run
-in sample mode, because no tenant or company id for a preview site was
-available.
+The GitHub MCP backend was verified against GitHub's hosted server: it connects,
+sees 44 tools, reads the base repository (48 files, framework detected, 7 routes
+parsed out of the routing module), and refuses a protected branch and an
+unwritable path exactly as the REST backend does.
+
+**Not verified:** the live Figma Dev Mode MCP connection, and a complete publish
+to a real repository. The Figma MCP client is written against Figma's tool
+surface and is defensive about tool names and payload shapes, but has never run
+against a live server — the REST backend covers the same ground headless. A real
+publish has reached the push and stopped there on a token missing
+`contents=write`; everything before it (generate, inspect, preflight) and the
+Vercel credentials (`/v2/user`, project listing) are confirmed, but no site has
+yet been pushed and deployed by the studio end to end.
+
+The preview's **live** data mode is confirmed at the API level — the tenant
+handshake and job search answer correctly, and the generated Angular app renders
+real roles from them — though the preview host itself has only been run in
+sample mode.
 
 ---
 
@@ -780,8 +884,22 @@ Enforced in code, not in the prompt:
   nothing. `DEPLOY_SITE` publishes, only to a destination an administrator
   supplied, never over the approved base repository, and never over somebody
   else's files without explicit agreement.
-- Protected branches are refused by the provider.
-- Commits are restricted to an allow-list of configuration paths.
+- Protected branches are refused by the provider, on both the REST and MCP
+  backends — a guard rail only one backend enforces is not a guard rail.
+- Commits to the **base** repository are restricted to an allow-list of
+  configuration paths. A **destination** repository is generated output the
+  studio owns, so that list does not apply there; what applies instead is that
+  the destination is never inferred, the base repo can never be one, and a
+  push only ever replaces files under the generated directories.
+- Validation no longer blocks publishing. It blocks *building a version* as it
+  always did, but an administrator may publish a blueprint that does not
+  validate, and then the issues travel with the deployment as warnings and the
+  agent says what it could not generate. The studio reports; the person
+  decides.
+- A deployment record is written by code from the run's own state, not by a
+  tool the model chooses to call, so it cannot say `succeeded` because the
+  model believed it had. The model's contribution is the prose summary, stored
+  as prose.
 - Functional capability comes only from the approved registry; a request the
   library cannot serve is recorded on the project as unsupported, never built.
 - Versions are append-only. Undo replays an old version forward as a new one, so

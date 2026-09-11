@@ -38,12 +38,6 @@ export interface PreviewFrameProps {
   onSelect?: (sectionId: string) => void;
   /** Bumped by the studio to force a reload after the blueprint changes. */
   reloadKey?: number;
-  /**
-   * Fills the shell instead of pinning to a device width + scaling down.
-   * For the standalone /preview route, which has no side panels to protect
-   * layout from — the frame's own viewport can just be the real one.
-   */
-  fullPage?: boolean;
 }
 
 export function PreviewFrame({
@@ -54,7 +48,6 @@ export function PreviewFrame({
   selectedSectionId,
   onSelect,
   reloadKey = 0,
-  fullPage = false,
 }: PreviewFrameProps) {
   const shellRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
@@ -76,7 +69,6 @@ export function PreviewFrame({
 
   // Measure before paint so the frame never flashes at the wrong size.
   useLayoutEffect(() => {
-    if (fullPage) return;
     const shell = shellRef.current;
     if (!shell) return;
 
@@ -90,7 +82,7 @@ export function PreviewFrame({
     const observer = new ResizeObserver(measure);
     observer.observe(shell);
     return () => observer.disconnect();
-  }, [device.width, fullPage]);
+  }, [device.width]);
 
   // Selection travels both ways: clicks in the preview select in the studio,
   // and selecting in the structure panel highlights in the preview.
@@ -114,18 +106,6 @@ export function PreviewFrame({
       "*",
     );
   }, [selectedSectionId]);
-
-  if (fullPage) {
-    return (
-      <iframe
-        ref={frameRef}
-        key={`${projectId}-${source}-${reloadKey}`}
-        src={src}
-        title="Career site preview"
-        style={{ width: "100%", height: "100%", border: 0, background: "#fff", display: "block" }}
-      />
-    );
-  }
 
   return (
     <div ref={shellRef} className="frame-shell">

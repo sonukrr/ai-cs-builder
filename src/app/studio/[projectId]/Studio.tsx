@@ -803,6 +803,14 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
       <section className="panel panel-preview">
         <div className="panel-head">
           Preview
+          <button
+            className="btn btn-sm"
+            onClick={() => setPreviewKey((key) => key + 1)}
+            title="Reload the preview"
+            aria-label="Reload the preview"
+          >
+            <ReloadIcon size={13} />
+          </button>
           {settings && (
             <button
               className="btn btn-sm"
@@ -815,19 +823,9 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
               title="Open the full, unclipped preview in a new tab"
               style={{ textTransform: "none", letterSpacing: 0 }}
             >
-              <ExternalLinkIcon size={13} />
-              Open full preview
+              <ExpandIcon size={13} />
             </button>
           )}
-          
-          <button
-            className="btn btn-sm"
-            onClick={() => setPreviewKey((key) => key + 1)}
-            title="Reload the preview"
-            aria-label="Reload the preview"
-          >
-            <ReloadIcon size={13} />
-          </button>
           {blueprint && (
             <button
               className="btn btn-sm"
@@ -856,15 +854,6 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
               ))}
             </select>
           )}
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={() => window.open(`/preview/${projectId}`, "_blank", "noopener,noreferrer")}
-            title="Open the full-page preview in a new tab"
-            aria-label="Open full-page preview"
-          >
-            <ExpandIcon size={13} />
-          </button>
 
           <div className="viewport-switch" role="group" aria-label="Preview viewport">
             {(Object.keys(VIEWPORTS) as ViewportName[]).map((name) => {

@@ -116,27 +116,42 @@ export function PreviewFrame({
 
   return (
     <div ref={shellRef} className="frame-shell">
-      {/*
-        The wrapper reserves the *scaled* footprint. Without it the unscaled
-        frame would still claim its full 1280px of layout space and the panel
-        would scroll horizontally.
-      */}
-      <div style={{ width: device.width * scale, height: device.height * scale }}>
-        <iframe
-          ref={frameRef}
-          key={`${projectId}-${source}-${reloadKey}`}
-          src={src}
-          title="Career site preview"
-          style={{
-            width: device.width,
-            height: device.height,
-            border: 0,
-            background: "#fff",
-            transform: `scale(${scale})`,
-            transformOrigin: "top left",
-            display: "block",
-          }}
-        />
+      <div className="frame-window" style={{ width: device.width * scale }}>
+        {/* A real window chrome, not decoration: the dots read as "this is a
+            browser", and the label is the one thing the scaled-down preview
+            can no longer show for itself — its own width. */}
+        <div className="frame-chrome">
+          <span className="frame-dots">
+            <i />
+            <i />
+            <i />
+          </span>
+          <span className="frame-chrome-label">
+            {device.label} · {device.width}px
+          </span>
+        </div>
+        {/*
+          The wrapper reserves the *scaled* footprint. Without it the unscaled
+          frame would still claim its full 1280px of layout space and the panel
+          would scroll horizontally.
+        */}
+        <div style={{ width: device.width * scale, height: device.height * scale }}>
+          <iframe
+            ref={frameRef}
+            key={`${projectId}-${source}-${reloadKey}`}
+            src={src}
+            title="Career site preview"
+            style={{
+              width: device.width,
+              height: device.height,
+              border: 0,
+              background: "#fff",
+              transform: `scale(${scale})`,
+              transformOrigin: "top left",
+              display: "block",
+            }}
+          />
+        </div>
       </div>
     </div>
   );

@@ -65,7 +65,7 @@ function percent(value: number): string {
 }
 
 function barColour(value: number): string {
-  return value >= 0.7 ? "var(--good)" : value >= 0.45 ? "var(--warn)" : "var(--bad)";
+  return value >= 0.7 ? "var(--l-good)" : value >= 0.45 ? "var(--l-warn)" : "var(--l-bad)";
 }
 
 /** Token values are mostly colours; a swatch reads faster than a hex string. */
@@ -277,13 +277,13 @@ export function FidelityReview({
         <h1>{loadError ? "The check could not be run" : "Checking the build against the design…"}</h1>
         {loadError ? (
           <>
-            <div className="notice" style={{ borderLeftColor: "var(--bad)" }}>{loadError}</div>
+            <div className="notice" style={{ borderLeftColor: "var(--l-bad)" }}>{loadError}</div>
             <p className="muted" style={{ marginTop: 12 }}>
               The check is evidence, not a lock. Run it again if that was a passing problem, or open
               the studio and compare against the design by eye in the preview.
             </p>
             {failure && (
-              <div className="notice" style={{ borderLeftColor: "var(--bad)" }}>{failure}</div>
+              <div className="notice" style={{ borderLeftColor: "var(--l-bad)" }}>{failure}</div>
             )}
             <div className="fidelity-actions">
               <button className="btn btn-primary" onClick={approve} disabled={approving || checking}>
@@ -454,7 +454,7 @@ export function FidelityReview({
       )}
 
       {(failure || sendError) && (
-        <div className="notice" style={{ borderLeftColor: "var(--bad)" }}>{failure || sendError}</div>
+        <div className="notice" style={{ borderLeftColor: "var(--l-bad)" }}>{failure || sendError}</div>
       )}
 
       <div className="fidelity-actions">

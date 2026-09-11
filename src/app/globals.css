@@ -163,20 +163,234 @@ select {
   font-size: 12px;
 }
 
+/* ---- studio theme --------------------------------------------------------
+   The studio, its error/loading screen, the fidelity review, and the two
+   modal overlays (component catalog, publish panel) share the light palette
+   from the projects/new landing page rather than the dark tokens above.
+   Values are intentionally duplicated from .landing's block instead of
+   sharing a selector with it, so this surface's palette can evolve without
+   touching the marketing page's rules, and vice versa.
+   ---------------------------------------------------------------------- */
+
+.studio,
+.start,
+.fidelity,
+.catalog-backdrop {
+  --l-bg: #f6f6f3;
+  --l-bg-2: #fbfbf9;
+  --l-surface: #ffffff;
+  --l-surface-2: #fcfcfb;
+  --l-text: #17181d;
+  --l-text-2: #565f6d;
+  --l-text-3: #8b93a1;
+  /* A step darker than --l-text-3: that one is ~3.1:1 on white, below the
+     4.5:1 AA floor for body-sized text. Use this for anything read as text. */
+  --l-text-4: #6b7280;
+  --l-border: #e9e9e3;
+  --l-border-strong: #dcdcd3;
+  --l-border-soft: rgba(23, 24, 29, 0.06);
+  --l-accent: #0b9e68;
+  --l-accent-2: #34d399;
+  --l-accent-ink: #ffffff;
+  --l-accent-soft: #e7f7ef;
+  --l-accent-dim: rgba(16, 163, 110, 0.16);
+  /* The landing page's own primary-button gradient (#12b981 top) reads fine
+     at display size but drops white text to ~2.5:1 at its lighter stop —
+     below the 4.5:1 AA floor. This solid, darker green keeps the same hue
+     family and passes contrast (~5.4:1) instead of copying that gradient. */
+  --l-accent-strong: #0a7a4f;
+  --l-accent-strong-hover: #086b46;
+  --l-good: #12996b;
+  --l-warn: #b7791f;
+  --l-warn-soft: rgba(183, 121, 31, 0.08);
+  --l-bad: #c0392b;
+  --l-bad-soft: #fdf1f0;
+  --l-radius: 16px;
+  --l-radius-sm: 10px;
+  --l-shadow-sm: 0 1px 2px rgba(23, 24, 29, 0.04), 0 1px 3px rgba(23, 24, 29, 0.06);
+  --l-shadow-md: 0 6px 24px -8px rgba(23, 24, 29, 0.12), 0 2px 8px -2px rgba(23, 24, 29, 0.06);
+  --l-shadow-lg: 0 24px 60px -18px rgba(38, 40, 90, 0.22);
+}
+
+/* Shared primitives (.btn, .field, .tag, .muted, .faint, .notice, .mono)
+   are defined dark further up for the plan screen, which still uses them.
+   These scoped overrides give the studio family the light equivalents
+   without touching that shared, still-dark, rule set. */
+.studio .btn,
+.start .btn,
+.fidelity .btn,
+.catalog-backdrop .btn {
+  border-color: var(--l-border-strong);
+  background: var(--l-surface);
+  color: var(--l-text);
+  box-shadow: var(--l-shadow-sm);
+}
+.studio .btn:hover:not(:disabled),
+.start .btn:hover:not(:disabled),
+.fidelity .btn:hover:not(:disabled),
+.catalog-backdrop .btn:hover:not(:disabled) {
+  background: var(--l-bg-2);
+  border-color: #c7c7bd;
+}
+/* A blanket opacity on light-on-dark primary-button text crushes contrast
+   when disabled (was ~1.9:1) — give disabled states their own color pair
+   instead of just fading the enabled one. */
+.studio .btn:disabled,
+.start .btn:disabled,
+.fidelity .btn:disabled,
+.catalog-backdrop .btn:disabled {
+  opacity: 1;
+  background: var(--l-bg-2);
+  border-color: var(--l-border);
+  color: var(--l-text-3);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+.studio .btn-primary,
+.start .btn-primary,
+.fidelity .btn-primary,
+.catalog-backdrop .btn-primary {
+  background: var(--l-accent-strong);
+  border-color: rgba(6, 90, 60, 0.2);
+  color: var(--l-accent-ink);
+  box-shadow: 0 1px 2px rgba(10, 90, 60, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.studio .btn-primary:hover:not(:disabled),
+.start .btn-primary:hover:not(:disabled),
+.fidelity .btn-primary:hover:not(:disabled),
+.catalog-backdrop .btn-primary:hover:not(:disabled) {
+  background: var(--l-accent-strong-hover);
+  /* The one CTA in the app that ships the site to the world earns a touch
+     more presence than a routine button — everywhere else stays flat. */
+  box-shadow: 0 6px 18px -4px rgba(10, 122, 79, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  transform: translateY(-1px);
+}
+.studio .btn-primary:disabled,
+.start .btn-primary:disabled,
+.fidelity .btn-primary:disabled,
+.catalog-backdrop .btn-primary:disabled {
+  background: var(--l-border-strong);
+  border-color: var(--l-border-strong);
+  color: var(--l-text-2);
+}
+
+.studio .field,
+.start .field,
+.fidelity .field,
+.catalog-backdrop .field {
+  border-color: var(--l-border-strong);
+  background: var(--l-surface-2);
+  color: var(--l-text);
+}
+.studio .field:focus,
+.start .field:focus,
+.fidelity .field:focus,
+.catalog-backdrop .field:focus {
+  border-color: var(--l-accent);
+  box-shadow: 0 0 0 3px var(--l-accent-dim);
+}
+.studio .field::placeholder,
+.start .field::placeholder,
+.fidelity .field::placeholder,
+.catalog-backdrop .field::placeholder {
+  color: var(--l-text-4);
+}
+
+.studio .tag,
+.start .tag,
+.fidelity .tag,
+.catalog-backdrop .tag {
+  border-color: var(--l-border-strong);
+  color: var(--l-text-2);
+}
+.studio .tag-fn,
+.fidelity .tag-fn,
+.catalog-backdrop .tag-fn {
+  color: #0a7a4f;
+  border-color: rgba(16, 163, 110, 0.3);
+  background: var(--l-accent-soft);
+}
+.studio .tag-static,
+.fidelity .tag-static,
+.catalog-backdrop .tag-static {
+  color: var(--l-text-2);
+  background: var(--l-bg-2);
+}
+.studio .tag-good,
+.fidelity .tag-good,
+.catalog-backdrop .tag-good {
+  color: #0a7a4f;
+  border-color: rgba(18, 153, 107, 0.3);
+  background: var(--l-accent-soft);
+}
+.studio .tag-warn,
+.fidelity .tag-warn,
+.catalog-backdrop .tag-warn {
+  color: #8a5c15;
+  border-color: rgba(183, 121, 31, 0.32);
+  background: var(--l-warn-soft);
+}
+.studio .tag-bad,
+.fidelity .tag-bad,
+.catalog-backdrop .tag-bad {
+  color: var(--l-bad);
+  border-color: #f3c9c6;
+  background: var(--l-bad-soft);
+}
+
+.studio .muted,
+.start .muted,
+.fidelity .muted,
+.catalog-backdrop .muted {
+  color: var(--l-text-2);
+}
+.studio .faint,
+.start .faint,
+.fidelity .faint,
+.catalog-backdrop .faint {
+  color: var(--l-text-4);
+}
+
+.studio .notice,
+.start .notice,
+.fidelity .notice,
+.catalog-backdrop .notice {
+  border-color: var(--l-border);
+  border-left-color: var(--l-warn);
+  background: var(--l-surface);
+  color: var(--l-text-2);
+}
+
 /* ---- start screen -------------------------------------------------------- */
 
 .start {
+  min-height: 100vh;
   max-width: 940px;
   margin: 0 auto;
   padding: 72px 24px 96px;
+  background: var(--l-bg);
+  color: var(--l-text);
 }
 .start h1 {
   font-size: 30px;
+  color: var(--l-text);
 }
 .start-sub {
   margin: 10px 0 40px;
-  color: var(--text-dim);
+  color: var(--l-text-2);
   max-width: 62ch;
+}
+.start a {
+  color: var(--l-accent);
+}
+.start .notice {
+  background: var(--l-bad-soft);
+  border-color: #f3c9c6;
+  color: #a53b34;
+}
+.start .notice strong {
+  color: #a53b34;
 }
 
 .cards {
@@ -294,12 +508,16 @@ select {
   the same kind of moment.
 */
 .fidelity {
+  min-height: 100vh;
   max-width: 1180px;
   margin: 0 auto;
   padding: 40px 24px 96px;
+  background: var(--l-bg);
+  color: var(--l-text);
 }
 .fidelity h1 {
   font-size: 26px;
+  color: var(--l-text);
 }
 
 .fidelity-shots {
@@ -316,14 +534,15 @@ select {
 
 .fidelity-shot {
   margin: 0;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--panel);
+  border: 1px solid var(--l-border);
+  border-radius: var(--l-radius-sm);
+  background: var(--l-surface);
+  box-shadow: var(--l-shadow-sm);
   overflow: hidden;
 }
 .fidelity-shot > header {
   padding: 10px 14px;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--l-border-soft);
   display: flex;
   align-items: baseline;
   gap: 10px;
@@ -332,7 +551,7 @@ select {
 .fidelity-shot .shot-body {
   max-height: 460px;
   overflow: auto;
-  background: var(--bg-inset);
+  background: var(--l-bg-2);
   display: flex;
   justify-content: center;
 }
@@ -347,26 +566,27 @@ select {
   gap: 12px;
   align-items: start;
   padding: 11px 16px;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--l-border-soft);
   border-left: 3px solid transparent;
 }
 .fidelity-band:last-child {
   border-bottom: 0;
 }
 .fidelity-band.is-blocking {
-  border-left-color: var(--bad);
-  background: #1c1416;
+  border-left-color: var(--l-bad);
+  background: var(--l-bad-soft);
 }
 .fidelity-band.is-watch {
-  border-left-color: var(--warn);
+  border-left-color: var(--l-warn);
+  background: var(--l-warn-soft);
 }
 .fidelity-note {
-  color: var(--text-faint);
+  color: var(--l-text-4);
   font-size: 12.5px;
   margin-top: 3px;
 }
 .fidelity-col {
-  color: var(--text-faint);
+  color: var(--l-text-4);
   font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -379,7 +599,7 @@ select {
   gap: 12px;
   align-items: center;
   padding: 9px 16px;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--l-border-soft);
 }
 .fidelity-token:last-child {
   border-bottom: 0;
@@ -388,11 +608,11 @@ select {
   font-size: 11px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--text-faint);
-  background: var(--bg-raised);
+  color: var(--l-text-4);
+  background: var(--l-bg-2);
 }
 .fidelity-token.is-off {
-  background: #1c1416;
+  background: var(--l-bad-soft);
 }
 
 .swatch {
@@ -400,7 +620,7 @@ select {
   width: 11px;
   height: 11px;
   border-radius: 3px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--l-border);
   margin-right: 6px;
   vertical-align: -1px;
 }
@@ -420,6 +640,8 @@ select {
   grid-template-columns: 290px minmax(340px, 1fr) minmax(420px, 1.35fr);
   grid-template-rows: 52px 1fr;
   height: 100vh;
+  background: var(--l-bg);
+  color: var(--l-text);
 }
 @media (max-width: 1180px) {
   .studio {
@@ -436,18 +658,44 @@ select {
   align-items: center;
   gap: 14px;
   padding: 0 16px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-raised);
+  border-bottom: 1px solid var(--l-border);
+  background: var(--l-surface);
 }
 .topbar h1 {
   font-size: 14px;
+  color: var(--l-text);
+}
+/* The agent's own mark, not the company's — this is the tool building the
+   site, so its identity gets the same slow "alive" pulse wherever it shows
+   up (here, and again at rest in the assistant panel-head below). */
+.brand-mark {
+  display: inline-flex;
+  color: var(--l-accent);
+  animation: spark-breathe 3s ease-in-out infinite;
+}
+@keyframes spark-breathe {
+  0%,
+  100% {
+    opacity: 0.75;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brand-mark {
+    animation: none;
+  }
 }
 .spacer {
   flex: 1;
 }
 
 .panel {
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--l-border);
+  background: var(--l-surface);
   overflow-y: auto;
   min-height: 0;
 }
@@ -459,29 +707,37 @@ select {
   top: 0;
   z-index: 2;
   padding: 11px 14px;
-  border-bottom: 1px solid var(--border-soft);
-  background: var(--bg-raised);
+  border-bottom: 1px solid var(--l-border-soft);
+  background: var(--l-surface);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--text-faint);
+  color: var(--l-text-4);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  row-gap: 6px;
 }
 
 /* structure */
 .page-group {
-  padding: 8px 0;
+  /* Tight within a page's own rows, generous between one page and the next —
+     rhythm carries the grouping instead of a rule or a boxed container. */
+  padding: 10px 0;
+}
+.page-group + .page-group {
+  margin-top: 6px;
+  border-top: 1px solid var(--l-border-soft);
 }
 .page-name {
   padding: 6px 14px;
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--l-text-2);
   display: flex;
-  gap: 8px;
-  align-items: baseline;
+  gap: 7px;
+  align-items: center;
 }
 .section-row {
   display: flex;
@@ -492,15 +748,16 @@ select {
   border: 0;
   border-left: 2px solid transparent;
   background: none;
-  color: var(--text);
+  color: var(--l-text);
   text-align: left;
+  transition: background 0.12s ease, border-color 0.12s ease;
 }
 .section-row:hover {
-  background: var(--bg-raised);
+  background: var(--l-bg-2);
 }
 .section-row.is-selected {
-  background: #182238;
-  border-left-color: var(--accent);
+  background: var(--l-accent-soft);
+  border-left-color: var(--l-accent);
 }
 .section-row .label {
   flex: 1;
@@ -515,6 +772,53 @@ select {
   flex-direction: column;
   overflow: hidden;
 }
+.agent-status {
+  display: inline-flex;
+  color: var(--l-text-4);
+  transition: color 0.2s ease;
+}
+.agent-status.is-working {
+  color: var(--l-accent);
+  animation: spark-breathe 1.1s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-status.is-working {
+    animation: none;
+  }
+}
+/* The real signal that the agent is working, sitting where a browser's own
+   loading bar would — a moving highlight, not a percentage it cannot know. */
+.agent-progress {
+  height: 2px;
+  background: var(--l-border-soft);
+  overflow: hidden;
+  flex: none;
+}
+.agent-progress::after {
+  content: "";
+  display: block;
+  height: 100%;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, var(--l-accent), transparent);
+  animation: agent-scan 1.3s ease-in-out infinite;
+}
+@keyframes agent-scan {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-progress::after {
+    animation: none;
+    width: 100%;
+    transform: none;
+    background: var(--l-accent);
+    opacity: 0.5;
+  }
+}
 .chat-log {
   flex: 1;
   overflow-y: auto;
@@ -523,17 +827,47 @@ select {
   flex-direction: column;
   gap: 14px;
 }
+/* Long replies are hard to scan at the panel's full width on a wide monitor;
+   cap the measure and let the log center within whatever space it has. */
+.chat-log > * {
+  width: 100%;
+  max-width: 640px;
+  margin-left: auto;
+  margin-right: auto;
+}
+/* The one authored motion on this page: each new turn arrives instead of
+   just appearing, so the conversation feels like it's happening rather than
+   being redrawn. Existing history (re-renders on reload) skips this via
+   the same rule — it only fires once per mounted element. */
+@keyframes turn-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.turn-user,
+.turn-assistant {
+  animation: turn-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .turn-user,
+  .turn-assistant {
+    animation: none;
+  }
+}
 .turn-user {
   align-self: flex-end;
   max-width: 85%;
-  background: #1d283e;
-  border: 1px solid #2a3550;
+  background: var(--l-accent-soft);
+  border: 1px solid rgba(16, 163, 110, 0.22);
   border-radius: 12px 12px 3px 12px;
   padding: 9px 13px;
+  color: var(--l-text);
   white-space: pre-wrap;
 }
 .turn-assistant {
   max-width: 95%;
+  color: var(--l-text);
   white-space: pre-wrap;
 }
 .activity {
@@ -541,35 +875,123 @@ select {
   align-items: flex-start;
   gap: 8px;
   font-size: 12.5px;
-  color: var(--text-faint);
+  color: var(--l-text-4);
   padding: 3px 0 3px 2px;
 }
 .activity .dot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--l-accent);
   margin-top: 7px;
   flex: none;
 }
+.activity .typing-dots {
+  margin-top: 3px;
+}
+
+/* A truthful "something is happening" cue — not a progress fake, just three
+   dots taking turns, the same idea every chat product already teaches. */
+.typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 16px;
+}
+.typing-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--l-accent);
+  opacity: 0.35;
+  animation: typing-dot 1.1s ease-in-out infinite;
+}
+.typing-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typing-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes typing-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .typing-dots i {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+
+/* Shared empty/loading state for the chat log and preview panel: an icon to
+   orient, then the explanation — never personality before the next action
+   is clear. */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 32px 20px;
+  text-align: center;
+  color: var(--l-text-4);
+}
+.empty-state svg {
+  color: var(--l-text-3);
+}
+.empty-state p {
+  margin: 0;
+  max-width: 34ch;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.is-pulsing {
+  animation: preview-pulse 1.8s ease-in-out infinite;
+}
+@keyframes preview-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .is-pulsing {
+    animation: none;
+  }
+}
 
 .composer {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--l-border);
   padding: 10px;
-  background: var(--bg-raised);
+  background: var(--l-surface);
 }
 .composer textarea {
   width: 100%;
   resize: none;
   border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-inset);
+  border: 1px solid var(--l-border-strong);
+  background: var(--l-surface-2);
+  color: var(--l-text);
   padding: 10px 12px;
   outline: none;
   min-height: 62px;
 }
+.composer textarea::placeholder {
+  color: var(--l-text-4);
+}
 .composer textarea:focus {
-  border-color: var(--accent-dim);
+  border-color: var(--l-accent);
+  box-shadow: 0 0 0 3px var(--l-accent-dim);
 }
 .suggestions {
   display: flex;
@@ -583,19 +1005,53 @@ select {
   align-items: center;
   gap: 7px;
   font-size: 12px;
-  color: var(--text-dim);
-  background: #182238;
-  border: 1px solid var(--accent-dim);
+  color: var(--l-text-2);
+  background: var(--l-accent-soft);
+  border: 1px solid rgba(16, 163, 110, 0.28);
   border-radius: 6px;
   padding: 3px 8px;
   margin-bottom: 8px;
+}
+
+/* A pill-shaped segmented control reads as one choice, not three loose
+   buttons — the flat background carries the group, the active tab lifts off
+   it, so switching devices feels like a toggle rather than a fresh click. */
+.viewport-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--l-bg-2);
+  border: 1px solid var(--l-border);
+}
+.viewport-switch-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--l-text-4);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+.viewport-switch-btn:hover {
+  color: var(--l-text);
+}
+.viewport-switch-btn.is-on {
+  background: var(--l-surface);
+  color: var(--l-accent);
+  box-shadow: var(--l-shadow-sm);
 }
 
 /* preview */
 .panel-preview {
   display: flex;
   flex-direction: column;
-  background: var(--bg-inset);
+  background: var(--l-bg-2);
   overflow: hidden;
 }
 .preview-scroll {
@@ -616,11 +1072,37 @@ select {
   display: flex;
   justify-content: center;
 }
-.frame-shell > div {
+.frame-window {
   background: #fff;
-  border-radius: 8px;
+  border-radius: 10px;
   overflow: hidden;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--l-shadow-lg);
+}
+/* A minimal window chrome — three dots and the width the preview is actually
+   rendering at, since the scaled-down frame can no longer show that itself. */
+.frame-chrome {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 26px;
+  padding: 0 10px;
+  background: var(--l-bg-2);
+  border-bottom: 1px solid var(--l-border-soft);
+}
+.frame-dots {
+  display: inline-flex;
+  gap: 5px;
+}
+.frame-dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--l-border-strong);
+}
+.frame-chrome-label {
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--l-text-4);
 }
 
 /* ---- component catalog --------------------------------------------------- */
@@ -629,11 +1111,12 @@ select {
   position: fixed;
   inset: 0;
   z-index: 50;
-  background: rgba(6, 9, 13, 0.66);
+  background: rgba(23, 24, 29, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 32px 16px;
+  animation: catalog-fade 0.15s ease both;
 }
 
 .catalog {
@@ -641,11 +1124,30 @@ select {
   max-height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  background: var(--l-surface);
+  color: var(--l-text);
+  border: 1px solid var(--l-border);
+  border-radius: var(--l-radius);
   overflow: hidden;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--l-shadow-lg);
+  animation: catalog-rise 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes catalog-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes catalog-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .catalog-backdrop,
+  .catalog {
+    animation: none;
+  }
 }
 
 .catalog-head {
@@ -654,15 +1156,15 @@ select {
   justify-content: space-between;
   gap: 16px;
   padding: 16px 18px;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--l-border-soft);
 }
 
 .catalog-controls {
   display: flex;
   gap: 10px;
   padding: 12px 18px;
-  border-bottom: 1px solid var(--border-soft);
-  background: var(--bg-raised);
+  border-bottom: 1px solid var(--l-border-soft);
+  background: var(--l-bg-2);
 }
 .catalog-tabs {
   display: flex;
@@ -670,8 +1172,9 @@ select {
   flex: none;
 }
 .catalog-tabs .btn.is-on {
-  border-color: var(--accent);
-  color: var(--text);
+  border-color: var(--l-accent);
+  color: var(--l-accent);
+  background: var(--l-accent-soft);
 }
 
 .catalog-body {
@@ -686,7 +1189,7 @@ select {
   font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--text-dim);
+  color: var(--l-text-2);
 }
 .catalog-group > p {
   margin: 2px 0 10px;
@@ -698,13 +1201,17 @@ select {
   align-items: flex-start;
   gap: 14px;
   padding: 12px 14px;
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
-  background: var(--bg-raised);
+  border: 1px solid var(--l-border);
+  border-radius: var(--l-radius-sm);
+  background: var(--l-bg-2);
   margin-bottom: 8px;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .catalog-item:hover {
-  border-color: var(--border);
+  border-color: var(--l-border-strong);
+  background: var(--l-surface);
+  box-shadow: var(--l-shadow-sm);
+  transform: translateY(-1px);
 }
 .catalog-item-main {
   flex: 1;
@@ -727,7 +1234,7 @@ select {
   margin: 10px 0 0;
   padding: 10px 12px;
   border-radius: 8px;
-  background: var(--bg-inset);
+  background: var(--l-surface-2);
   font-size: 12.5px;
 }
 .catalog-settings > div {
@@ -737,21 +1244,22 @@ select {
   padding: 3px 0;
 }
 .catalog-settings dt {
-  color: var(--accent);
+  color: #0a7a4f;
   font-family: var(--mono);
   font-size: 11.5px;
   overflow-wrap: anywhere;
 }
 .catalog-settings dd {
   margin: 0;
-  color: var(--text-dim);
+  color: var(--l-text-2);
 }
 
 .catalog-foot {
   padding: 11px 18px;
-  border-top: 1px solid var(--border-soft);
+  border-top: 1px solid var(--l-border-soft);
   font-size: 12px;
-  background: var(--bg-raised);
+  color: var(--l-text-2);
+  background: var(--l-bg-2);
 }
 
 /* ---- publish panel -------------------------------------------------------- */
@@ -796,7 +1304,7 @@ select {
   font-size: 11.5px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--text-dim);
+  color: var(--l-text-2);
 }
 
 .publish-check {
@@ -804,17 +1312,17 @@ select {
   align-items: flex-start;
   gap: 9px;
   font-size: 12.5px;
-  color: var(--text-dim);
+  color: var(--l-text-2);
   line-height: 1.45;
 }
 .publish-check input {
   margin: 2px 0 0;
-  accent-color: var(--accent);
+  accent-color: var(--l-accent);
   flex: none;
 }
 
 .publish-check strong {
-  color: var(--text);
+  color: var(--l-text);
 }
 
 /*
@@ -822,10 +1330,11 @@ select {
   the publish, and all of it changes whether the administrator wants to.
 */
 .publish-warnings {
-  border: 1px solid #4a3c1c;
-  border-left: 3px solid var(--warn);
-  border-radius: var(--radius);
-  background: #1c1810;
+  border: 1px solid rgba(183, 121, 31, 0.3);
+  border-left: 3px solid var(--l-warn);
+  border-radius: var(--l-radius);
+  background: var(--l-warn-soft);
+  color: var(--l-text);
   padding: 12px 14px;
   font-size: 12.5px;
   line-height: 1.5;
@@ -833,7 +1342,7 @@ select {
 .publish-warnings ul {
   margin: 8px 0 0;
   padding-left: 18px;
-  color: var(--text-dim);
+  color: var(--l-text-2);
 }
 .publish-warnings li + li {
   margin-top: 6px;
@@ -854,9 +1363,10 @@ select {
 .publish-files {
   max-height: 220px;
   overflow-y: auto;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
-  background: var(--bg-inset);
+  border: 1px solid var(--l-border);
+  border-radius: var(--l-radius);
+  background: var(--l-surface-2);
+  color: var(--l-text);
   padding: 8px 10px;
   font-size: 12px;
 }
@@ -871,16 +1381,17 @@ select {
   margin: 8px 0 0;
   padding-left: 18px;
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--l-text-2);
 }
 
 /* The publish takes minutes, so its log is the panel's centre of gravity. */
 .publish-log {
   max-height: 280px;
   overflow-y: auto;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
-  background: var(--bg-inset);
+  border: 1px solid var(--l-border);
+  border-radius: var(--l-radius);
+  background: var(--l-surface-2);
+  color: var(--l-text);
   padding: 10px 12px;
 }
 
@@ -889,7 +1400,7 @@ select {
   align-items: center;
   gap: 10px;
   padding: 6px 0;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--l-border-soft);
   font-size: 12.5px;
 }
 .publish-history:last-child {
@@ -903,9 +1414,10 @@ select {
   font-size: 14px;
   word-break: break-all;
   padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-inset);
+  border: 1px solid var(--l-border);
+  border-radius: var(--l-radius);
+  background: var(--l-accent-soft);
+  color: #0a7a4f;
 }
 
 /* ==========================================================================

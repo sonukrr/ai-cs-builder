@@ -35,6 +35,15 @@ export const DesktopIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const ExpandIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M9 4H4v5" />
+    <path d="M15 20h5v-5" />
+    <path d="M20 4l-7 7" />
+    <path d="M4 20l7-7" />
+  </Icon>
+);
+
 export const TabletIcon = (p: IconProps) => (
   <Icon {...p}>
     <rect x="5" y="3" width="14" height="18" rx="2" />

@@ -31,21 +31,38 @@ export async function POST(request: Request) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (event: unknown) =>
-        controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
+      // Once the client hits Stop the request aborts and the stream is torn
+      // down, so an enqueue would throw; swallow it rather than crash the turn.
+      const send = (event: unknown) => {
+        if (request.signal.aborted) return;
+        try {
+          controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
+        } catch {
+          // Client is gone; nothing left to write to.
+        }
+      };
 
       try {
         for await (const event of runAgent({
           projectId: body.projectId!,
           message: body.message!,
           selection: body.selection,
+          // Cancels the model call the instant the browser aborts the fetch.
+          signal: request.signal,
         })) {
+          if (request.signal.aborted) break;
           send(event);
         }
       } catch (error) {
-        send({ type: "error", message: error instanceof Error ? error.message : String(error) });
+        if (!request.signal.aborted) {
+          send({ type: "error", message: error instanceof Error ? error.message : String(error) });
+        }
       } finally {
-        controller.close();
+        try {
+          controller.close();
+        } catch {
+          // Already closed by the abort; safe to ignore.
+        }
       }
     },
   });

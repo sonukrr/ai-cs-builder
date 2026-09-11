@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { buildPreviewUrl } from "@/lib/preview/url";
 
 /**
  * The live preview, rendered by the Angular host in an iframe.
@@ -27,37 +28,33 @@ export const VIEWPORTS = {
 
 export type ViewportName = keyof typeof VIEWPORTS;
 
-/**
- * Where the library's job data comes from.
- *
- * `sample` and `custom` are both answered by an interceptor inside the preview
- * host — the same components, the same code path, different rows. `custom` is a
- * dataset the agent researched for this company.
- */
-export type DataSource = "sample" | "custom" | "live";
-
 export interface PreviewFrameProps {
   projectId: string;
   pageId: string;
   viewport: ViewportName;
-  source: DataSource;
   /** Where the Angular preview host is served from. */
   previewOrigin: string;
   selectedSectionId?: string;
   onSelect?: (sectionId: string) => void;
   /** Bumped by the studio to force a reload after the blueprint changes. */
   reloadKey?: number;
+  /**
+   * Fills the shell instead of pinning to a device width + scaling down.
+   * For the standalone /preview route, which has no side panels to protect
+   * layout from — the frame's own viewport can just be the real one.
+   */
+  fullPage?: boolean;
 }
 
 export function PreviewFrame({
   projectId,
   pageId,
   viewport,
-  source,
   previewOrigin,
   selectedSectionId,
   onSelect,
   reloadKey = 0,
+  fullPage = false,
 }: PreviewFrameProps) {
   const shellRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
@@ -70,12 +67,16 @@ export function PreviewFrame({
   // in the host itself (preview-app/src/app/preview-config.ts), not passed in.
   // Page and selection are pushed over postMessage instead, so changing either
   // does not reload the frame and lose scroll position.
-  const src = `${previewOrigin}/?project=${encodeURIComponent(projectId)}&studio=${encodeURIComponent(
-    typeof window === "undefined" ? "" : window.location.origin,
-  )}&source=${source}&v=${reloadKey}`;
+  const src = buildPreviewUrl({
+    previewOrigin,
+    projectId,
+    studioOrigin: typeof window === "undefined" ? "" : window.location.origin,
+    reloadKey,
+  });
 
   // Measure before paint so the frame never flashes at the wrong size.
   useLayoutEffect(() => {
+    if (fullPage) return;
     const shell = shellRef.current;
     if (!shell) return;
 
@@ -89,7 +90,7 @@ export function PreviewFrame({
     const observer = new ResizeObserver(measure);
     observer.observe(shell);
     return () => observer.disconnect();
-  }, [device.width]);
+  }, [device.width, fullPage]);
 
   // Selection travels both ways: clicks in the preview select in the studio,
   // and selecting in the structure panel highlights in the preview.
@@ -113,6 +114,18 @@ export function PreviewFrame({
       "*",
     );
   }, [selectedSectionId]);
+
+  if (fullPage) {
+    return (
+      <iframe
+        ref={frameRef}
+        key={`${projectId}-${source}-${reloadKey}`}
+        src={src}
+        title="Career site preview"
+        style={{ width: "100%", height: "100%", border: 0, background: "#fff", display: "block" }}
+      />
+    );
+  }
 
   return (
     <div ref={shellRef} className="frame-shell">
@@ -138,7 +151,7 @@ export function PreviewFrame({
         <div style={{ width: device.width * scale, height: device.height * scale }}>
           <iframe
             ref={frameRef}
-            key={`${projectId}-${source}-${reloadKey}`}
+            key={`${projectId}-${reloadKey}`}
             src={src}
             title="Career site preview"
             style={{

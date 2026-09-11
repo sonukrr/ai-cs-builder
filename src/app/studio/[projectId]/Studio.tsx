@@ -1,25 +1,24 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import {
-  PreviewFrame,
-  VIEWPORTS,
-  type DataSource,
-  type ViewportName,
-} from "@/components/preview/PreviewFrame";
+import { PreviewFrame, VIEWPORTS, type ViewportName } from "@/components/preview/PreviewFrame";
 import { ComponentCatalog } from "@/components/studio/ComponentCatalog";
 import { FidelityReview } from "@/components/studio/FidelityReview";
 import { PublishPanel } from "./PublishPanel";
+import { StyleEditor } from "./StyleEditor";
 import {
   ChatGlyph,
   CloseIcon,
   DesktopIcon,
+  ExternalLinkIcon,
   GridIcon,
   HistoryIcon,
   MobileIcon,
   PageIcon,
+  PaletteIcon,
   PlusIcon,
   PreviewGlyph,
+  ReloadIcon,
   RowIcon,
   SendIcon,
   SparkMark,
@@ -28,6 +27,7 @@ import {
 } from "@/components/studio/icons";
 import type { Blueprint, Section } from "@/lib/blueprint/schema";
 import type { FidelityReport } from "@/lib/fidelity/types";
+import { buildPreviewUrl, previewChannelName } from "@/lib/preview/url";
 
 /**
  * Screen 3 — the Career Site Studio.
@@ -62,9 +62,6 @@ interface ProjectData {
 
 interface PreviewSettings {
   previewOrigin: string;
-  defaultSource: DataSource;
-  /** Live mode needs no per-project setup: the host carries the tenant identity. */
-  liveReady: boolean;
 }
 
 /** Sections nest, so anything that looks one up has to walk the whole tree. */
@@ -211,10 +208,9 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
   const [selectedSectionId, setSelectedSectionId] = useState<string>("");
   const [viewport, setViewport] = useState<ViewportName>("desktop");
   const [settings, setSettings] = useState<PreviewSettings | null>(null);
-  const [source, setSource] = useState<DataSource>("sample");
-  const [hasDataset, setHasDataset] = useState(false);
   const [showCatalog, setShowCatalog] = useState(false);
   const [showPublish, setShowPublish] = useState(false);
+  const [showStyleEditor, setShowStyleEditor] = useState(false);
   /** Bumped after every change so the preview frame reloads the blueprint. */
   const [previewKey, setPreviewKey] = useState(0);
 
@@ -233,6 +229,18 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
   const kickedOff = useRef(false);
   /** The blueprint version the review has already been run for. */
   const fidelityRun = useRef(-1);
+  /** Tells any open full-preview tab to reload after a change lands. */
+  const previewChannel = useRef<BroadcastChannel | null>(null);
+
+  useEffect(() => {
+    if (typeof BroadcastChannel === "undefined") return;
+    const channel = new BroadcastChannel(previewChannelName(projectId));
+    previewChannel.current = channel;
+    return () => {
+      channel.close();
+      previewChannel.current = null;
+    };
+  }, [projectId]);
 
   const load = useCallback(async () => {
     const response = await fetch(`/api/projects/${projectId}`);
@@ -245,13 +253,8 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
     setPageId((current) => current || next.blueprint?.pages[0]?.id || "");
     // The preview holds its own copy of the blueprint; tell it to refetch.
     setPreviewKey((key) => key + 1);
-
-    // The agent may have researched job data during the turn, which enables a
-    // data source that was not offered a moment ago.
-    fetch(`/api/projects/${projectId}/dataset`)
-      .then((response) => (response.ok ? response.json() : { dataset: null }))
-      .then((body) => setHasDataset(Boolean(body.dataset?.roles?.length)))
-      .catch(() => setHasDataset(false));
+    // Any full-preview tab open in another window holds its own copy too.
+    previewChannel.current?.postMessage({ type: "reload" });
 
     return next;
   }, [projectId]);
@@ -264,10 +267,7 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
     (async () => {
       const response = await fetch("/api/preview-config");
       if (!response.ok) return;
-      const config = (await response.json()) as PreviewSettings;
-      setSettings(config);
-      // Never open on a source that cannot serve anything yet.
-      setSource(config.defaultSource === "live" && !config.liveReady ? "sample" : config.defaultSource);
+      setSettings((await response.json()) as PreviewSettings);
     })();
   }, []);
 
@@ -449,8 +449,12 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
 
   if (!data) {
     return (
-      <main className="start">
-        <h1 className="muted">Loading…</h1>
+      <main className="start studio-loading">
+        <span className="brand-mark">
+          <SparkMark size={22} />
+        </span>
+        <div className="spinner" aria-hidden="true" />
+        <p className="loading-text">Loading your site studio…</p>
       </main>
     );
   }
@@ -516,6 +520,18 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
           onAdded={() => {
             void load();
             setShowCatalog(false);
+          }}
+        />
+      )}
+
+      {showStyleEditor && blueprint && (
+        <StyleEditor
+          projectId={projectId}
+          blueprint={blueprint}
+          onClose={() => setShowStyleEditor(false)}
+          onSaved={() => {
+            void load();
+            setShowStyleEditor(false);
           }}
         />
       )}
@@ -745,7 +761,42 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
       <section className="panel panel-preview">
         <div className="panel-head">
           Preview
-          <span className="spacer" style={{ flex: 1 }} />
+          {settings && (
+            <button
+              className="btn btn-sm"
+              onClick={() =>
+                window.open(
+                  `/studio/${projectId}/full-preview?page=${encodeURIComponent(pageId)}`,
+                  `full-preview-${projectId}`,
+                )
+              }
+              title="Open the full, unclipped preview in a new tab"
+              style={{ textTransform: "none", letterSpacing: 0 }}
+            >
+              <ExternalLinkIcon size={13} />
+              Open full preview
+            </button>
+          )}
+          
+          <button
+            className="btn btn-sm"
+            onClick={() => setPreviewKey((key) => key + 1)}
+            title="Reload the preview"
+            aria-label="Reload the preview"
+          >
+            <ReloadIcon size={13} />
+          </button>
+          {blueprint && (
+            <button
+              className="btn btn-sm"
+              onClick={() => setShowStyleEditor(true)}
+              title="Make live style edits — colours and company copy"
+              style={{ textTransform: "none", letterSpacing: 0 }}
+            >
+              <PaletteIcon size={13} />
+              Edit styles
+            </button>
+          )}
           {blueprint && blueprint.pages.length > 1 && (
             <select
               className="btn btn-sm"
@@ -781,31 +832,11 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
               );
             })}
           </div>
-
-          {/*
-            The connector switch. All three run the same library components
-            against the same code path — only where the rows come from differs,
-            which is what makes the sample modes a fair preview.
-          */}
-          <select
-            className="btn btn-sm"
-            value={source}
-            onChange={(event) => setSource(event.target.value as DataSource)}
-            title="Where the job listings and filters get their data"
-            style={{
-              textTransform: "none",
-              letterSpacing: 0,
-              borderColor: source === "live" ? "var(--l-good)" : undefined,
-            }}
-          >
-            <option value="sample">Sample data</option>
-            <option value="custom" disabled={!hasDataset}>
-              {hasDataset ? "Researched data" : "Researched data (ask the assistant)"}
-            </option>
-            <option value="live" disabled={!settings?.liveReady}>
-              {settings?.liveReady ? "Live careers API" : "Live API (needs setup)"}
-            </option>
-          </select>
+          <span className="spacer" style={{ flex: 1 }} />
+          <span className="live-indicator" title="The preview always pulls live job data from the Careers API">
+            <span className="live-dot" />
+            Live Careers API
+          </span>
         </div>
 
         <div className="preview-scroll">
@@ -814,7 +845,6 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
               projectId={projectId}
               pageId={pageId}
               viewport={viewport}
-              source={source}
               previewOrigin={settings.previewOrigin}
               selectedSectionId={selectedSectionId}
               onSelect={setSelectedSectionId}

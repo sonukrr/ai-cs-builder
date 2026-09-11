@@ -75,7 +75,7 @@ export default function NewProject() {
         {/* Hero */}
         <section className="l-hero">
           <span className="l-eyebrow">
-            <SparkleIcon size={14} /> AI-powered Careersite Builder
+            <SparkleIcon size={14} /> AI-powered Careersite Studio
           </span>
           <h1 className="l-hero-title">
             Build better career sites

@@ -14,6 +14,7 @@ import {
   ChatGlyph,
   CloseIcon,
   DesktopIcon,
+  ExpandIcon,
   GridIcon,
   HistoryIcon,
   MobileIcon,
@@ -763,6 +764,16 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
               ))}
             </select>
           )}
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => window.open(`/preview/${projectId}`, "_blank", "noopener,noreferrer")}
+            title="Open the full-page preview in a new tab"
+            aria-label="Open full-page preview"
+          >
+            <ExpandIcon size={13} />
+          </button>
+
           <div className="viewport-switch" role="group" aria-label="Preview viewport">
             {(Object.keys(VIEWPORTS) as ViewportName[]).map((name) => {
               const ViewportIcon = VIEWPORT_ICON[name];

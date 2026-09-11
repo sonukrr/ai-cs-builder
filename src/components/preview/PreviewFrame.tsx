@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { buildPreviewUrl } from "@/lib/preview/url";
 
 /**
  * The live preview, rendered by the Angular host in an iframe.
@@ -27,20 +28,10 @@ export const VIEWPORTS = {
 
 export type ViewportName = keyof typeof VIEWPORTS;
 
-/**
- * Where the library's job data comes from.
- *
- * `sample` and `custom` are both answered by an interceptor inside the preview
- * host — the same components, the same code path, different rows. `custom` is a
- * dataset the agent researched for this company.
- */
-export type DataSource = "sample" | "custom" | "live";
-
 export interface PreviewFrameProps {
   projectId: string;
   pageId: string;
   viewport: ViewportName;
-  source: DataSource;
   /** Where the Angular preview host is served from. */
   previewOrigin: string;
   selectedSectionId?: string;
@@ -53,7 +44,6 @@ export function PreviewFrame({
   projectId,
   pageId,
   viewport,
-  source,
   previewOrigin,
   selectedSectionId,
   onSelect,
@@ -70,9 +60,12 @@ export function PreviewFrame({
   // in the host itself (preview-app/src/app/preview-config.ts), not passed in.
   // Page and selection are pushed over postMessage instead, so changing either
   // does not reload the frame and lose scroll position.
-  const src = `${previewOrigin}/?project=${encodeURIComponent(projectId)}&studio=${encodeURIComponent(
-    typeof window === "undefined" ? "" : window.location.origin,
-  )}&source=${source}&v=${reloadKey}`;
+  const src = buildPreviewUrl({
+    previewOrigin,
+    projectId,
+    studioOrigin: typeof window === "undefined" ? "" : window.location.origin,
+    reloadKey,
+  });
 
   // Measure before paint so the frame never flashes at the wrong size.
   useLayoutEffect(() => {
@@ -138,7 +131,7 @@ export function PreviewFrame({
         <div style={{ width: device.width * scale, height: device.height * scale }}>
           <iframe
             ref={frameRef}
-            key={`${projectId}-${source}-${reloadKey}`}
+            key={`${projectId}-${reloadKey}`}
             src={src}
             title="Career site preview"
             style={{

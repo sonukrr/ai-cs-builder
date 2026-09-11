@@ -128,6 +128,33 @@ export const ChatGlyph = (p: IconProps) => (
   </Icon>
 );
 
+export const ReloadIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3.5 12a8.5 8.5 0 0114.5-6" />
+    <path d="M18 3v4.5h-4.5" />
+    <path d="M20.5 12a8.5 8.5 0 01-14.5 6" />
+    <path d="M6 21v-4.5h4.5" />
+  </Icon>
+);
+
+export const ExternalLinkIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M9 5H5a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2v-4" />
+    <path d="M14 4h6v6" />
+    <path d="M20 4l-9.5 9.5" />
+  </Icon>
+);
+
+export const PaletteIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 3a9 8.5 0 100 17c1 0 1.6-.6 1.6-1.4 0-.4-.2-.7-.4-1-.3-.3-.4-.6-.4-1 0-.8.6-1.4 1.4-1.4H16a4 4 0 004-4c0-4.4-3.6-8.2-8-8.2z" />
+    <circle cx="7.3" cy="11.5" r="1" fill="currentColor" stroke="none" />
+    <circle cx="9.8" cy="7.2" r="1" fill="currentColor" stroke="none" />
+    <circle cx="14.8" cy="7.2" r="1" fill="currentColor" stroke="none" />
+    <circle cx="16.8" cy="11.5" r="1" fill="currentColor" stroke="none" />
+  </Icon>
+);
+
 /** The agent mark — same "spark" used on the landing page's brand, so the
     studio reads as the same product mid-task rather than a different tool. */
 export const SparkMark = (p: IconProps) => (

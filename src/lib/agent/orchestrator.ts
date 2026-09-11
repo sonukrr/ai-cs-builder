@@ -27,6 +27,8 @@ export interface RunInput {
   message: string;
   /** What the admin has selected in the preview, if anything. */
   selection?: { pageId?: string; sectionId?: string };
+  /** Aborts the in-flight model call when the admin stops the turn. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -58,7 +60,9 @@ function researchTools(onActivity: (tool: string, summary: string) => void) {
  * The caller streams these to the browser; nothing here knows about HTTP.
  */
 export async function* runAgent(input: RunInput): AsyncGenerator<AgentEvent> {
-  const { projectId, message, selection } = input;
+  const { projectId, message, selection, signal } = input;
+
+  const stopped = () => Boolean(signal?.aborted);
 
   // Buffer activity from tool closures, which run inside the SDK and cannot
   // yield from this generator directly.
@@ -94,19 +98,26 @@ export async function* runAgent(input: RunInput): AsyncGenerator<AgentEvent> {
   const activity: { tool: string; summary: string }[] = [];
 
   try {
-    const runner = anthropic().beta.messages.toolRunner({
-      model: MODEL,
-      max_tokens: 32000,
-      thinking: { type: "adaptive" },
-      output_config: { effort: "high" },
-      system: systemPrompt(),
-      tools: [...tools, ...researchTools(onActivity)],
-      messages,
-      stream: true,
-      max_iterations: 16,
-    });
+    const runner = anthropic().beta.messages.toolRunner(
+      {
+        model: MODEL,
+        max_tokens: 32000,
+        thinking: { type: "adaptive" },
+        output_config: { effort: "high" },
+        system: systemPrompt(),
+        tools: [...tools, ...researchTools(onActivity)],
+        messages,
+        stream: true,
+        max_iterations: 16,
+      },
+      // Passing the signal cancels the underlying HTTP request the moment the
+      // admin hits Stop, rather than only after the current model call returns.
+      { signal },
+    );
 
     for await (const stream of runner) {
+      // Stop between iterations too, so a multi-tool turn ends promptly.
+      if (stopped()) break;
       // Text arrives token by token so the studio feels responsive during the
       // long tool-heavy turns that an import produces.
       const deltas: string[] = [];
@@ -145,9 +156,15 @@ export async function* runAgent(input: RunInput): AsyncGenerator<AgentEvent> {
       }
     }
   } catch (error) {
-    const detail = describeApiError(error);
-    yield { type: "error", message: detail };
-    assistantText ||= `Something went wrong: ${detail}`;
+    // A stop is a deliberate cancellation, not a failure: keep whatever text
+    // streamed so far and fall through to persist it, without a red error.
+    const aborted =
+      stopped() || (error instanceof Error && error.name === "AbortError");
+    if (!aborted) {
+      const detail = describeApiError(error);
+      yield { type: "error", message: detail };
+      assistantText ||= `Something went wrong: ${detail}`;
+    }
   }
 
   // Drain anything a tool recorded after the last stream ended.

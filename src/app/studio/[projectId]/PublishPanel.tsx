@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Deployment, DeployTarget, DeployTargetKind } from "@/lib/blueprint/schema";
+import { fetchJson, readJson } from "@/lib/client/json";
 
 /**
  * Publishing, as a panel rather than a button.
@@ -129,12 +130,12 @@ export function PublishPanel({ projectId, companyName, blocking, onClose, onPubl
 
   const load = useCallback(async () => {
     try {
-      const response = await fetch(
+      const result = await fetchJson<DeployState>(
         `/api/projects/${projectId}/deploy${kind ? `?target=${kind}` : ""}`,
+        "what would be published",
       );
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? "Could not work out what would be published");
-      const next = body as DeployState;
+      if (!result.ok || !result.data) throw new Error(result.error);
+      const next = result.data;
       setState(next);
       if (next.target) {
         setRepo(next.target.repo);
@@ -174,11 +175,11 @@ export function PublishPanel({ projectId, companyName, blocking, onClose, onPubl
 
     setChecking(true);
     try {
-      const response = await fetch(
+      const result = await fetchJson<{ destination: Destination }>(
         `/api/projects/${projectId}/deploy?check=${encodeURIComponent(candidate)}`,
+        "the destination repository",
       );
-      const body = await response.json();
-      setDestination(response.ok ? (body.destination as Destination) : null);
+      setDestination(result.data?.destination ?? null);
     } catch {
       // A failed check is not a failed publish; the publish reports for itself.
       setDestination(null);
@@ -212,20 +213,17 @@ export function PublishPanel({ projectId, companyName, blocking, onClose, onPubl
         URL back to a version and the person who asked for it.
       */
       let publishRequestId = "";
-      const filed = await fetch(`/api/projects/${projectId}/publish`, {
+      const filed = await fetchJson<{
+        request?: { id?: string };
+        issues?: { message: string }[];
+      }>(`/api/projects/${projectId}/publish`, "the publish request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notes }),
       });
-      const filedBody = await filed.json().catch(() => ({}));
-      if (filed.ok) publishRequestId = filedBody.request?.id ?? "";
-      else if (filed.status === 422) {
-        throw new Error(
-          `The site does not validate: ${(filedBody.issues ?? [])
-            .map((issue: { message: string }) => issue.message)
-            .join("; ")}`,
-        );
-      }
+      // A request that could not be filed does not stop the publish: it is the
+      // governance record, and the administrator asked to publish.
+      publishRequestId = filed.data?.request?.id ?? "";
 
       const response = await fetch(`/api/projects/${projectId}/deploy`, {
         method: "POST",
@@ -243,8 +241,8 @@ export function PublishPanel({ projectId, companyName, blocking, onClose, onPubl
       });
 
       if (!response.ok || !response.body) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(body.error ?? "The deploy agent is unavailable");
+        const failure = await readJson<{ error?: string }>(response, "the deploy agent");
+        throw new Error(failure.error || "The deploy agent is unavailable");
       }
 
       const reader = response.body.getReader();

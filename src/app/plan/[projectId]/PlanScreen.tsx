@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { readJson } from "@/lib/client/json";
 import { useRouter } from "next/navigation";
 
 interface PlanSection {
@@ -56,9 +57,9 @@ export function PlanScreen({ projectId, figmaUrl }: { projectId: string; figmaUr
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ figmaUrl }),
         });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error ?? "The import failed");
-        setResult(data as ImportResult);
+        const result = await readJson<ImportResult>(response, "the imported design");
+        if (!result.ok || !result.data) throw new Error(result.error);
+        setResult(result.data);
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : String(caught));
       }
@@ -69,7 +70,8 @@ export function PlanScreen({ projectId, figmaUrl }: { projectId: string; figmaUr
     setApproving(true);
     try {
       const response = await fetch(`/api/projects/${projectId}/plan`, { method: "POST" });
-      const data = await response.json();
+      const parsed = await readJson<Record<string, unknown>>(response, "the approved plan");
+      const data = (parsed.data ?? { error: parsed.error }) as Record<string, any>;
       if (!response.ok) {
         // The reason is in `issues`, and without it "does not validate" is a
         // dead end: the admin cannot tell which band is at fault or what to

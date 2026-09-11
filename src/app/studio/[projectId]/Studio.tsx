@@ -10,6 +10,7 @@ import {
 import { ComponentCatalog } from "@/components/studio/ComponentCatalog";
 import { FidelityReview } from "@/components/studio/FidelityReview";
 import { PublishPanel } from "./PublishPanel";
+import { fetchJson, readJson } from "@/lib/client/json";
 import {
   ChatGlyph,
   CloseIcon,
@@ -235,12 +236,12 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
   const fidelityRun = useRef(-1);
 
   const load = useCallback(async () => {
-    const response = await fetch(`/api/projects/${projectId}`);
-    if (!response.ok) {
-      setError((await response.json()).error ?? "Could not load the project");
+    const result = await fetchJson<ProjectData>(`/api/projects/${projectId}`, "the project");
+    if (!result.ok || !result.data) {
+      setError(result.error);
       return null;
     }
-    const next = (await response.json()) as ProjectData;
+    const next = result.data;
     setData(next);
     setPageId((current) => current || next.blueprint?.pages[0]?.id || "");
     // The preview holds its own copy of the blueprint; tell it to refetch.
@@ -248,10 +249,10 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
 
     // The agent may have researched job data during the turn, which enables a
     // data source that was not offered a moment ago.
-    fetch(`/api/projects/${projectId}/dataset`)
-      .then((response) => (response.ok ? response.json() : { dataset: null }))
-      .then((body) => setHasDataset(Boolean(body.dataset?.roles?.length)))
-      .catch(() => setHasDataset(false));
+    void fetchJson<{ dataset?: { roles?: unknown[] } }>(
+      `/api/projects/${projectId}/dataset`,
+      "the researched job data",
+    ).then((result) => setHasDataset(Boolean(result.data?.dataset?.roles?.length)));
 
     return next;
   }, [projectId]);
@@ -262,9 +263,9 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
 
   useEffect(() => {
     (async () => {
-      const response = await fetch("/api/preview-config");
-      if (!response.ok) return;
-      const config = (await response.json()) as PreviewSettings;
+      const result = await fetchJson<PreviewSettings>("/api/preview-config", "the preview settings");
+      if (!result.ok || !result.data) return;
+      const config = result.data;
       setSettings(config);
       // Never open on a source that cannot serve anything yet.
       setSource(config.defaultSource === "live" && !config.liveReady ? "sample" : config.defaultSource);
@@ -368,7 +369,8 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
         });
 
         if (!response.ok || !response.body) {
-          throw new Error((await response.json().catch(() => ({}))).error ?? "The assistant is unavailable");
+          const failure = await readJson<{ error?: string }>(response, "the assistant's reply");
+          throw new Error(failure.error || "The assistant is unavailable");
         }
 
         const reader = response.body.getReader();

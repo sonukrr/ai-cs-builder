@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { readJson } from "@/lib/client/json";
 import { useState } from "react";
 import type { CapabilityState } from "@/lib/agent/capabilities";
 import { ImportIcon, LayersIcon, ArrowRightIcon } from "./icons";
@@ -25,8 +26,9 @@ export function StartPoints({ figmaState, figmaDetail, baseState, baseDetail }: 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: "Untitled site", entryPoint, sourceRef }),
     });
-    if (!response.ok) throw new Error((await response.json()).error ?? "Could not create the project");
-    return (await response.json()).project as { id: string };
+    const result = await readJson<{ project: { id: string } }>(response, "the new project");
+    if (!result.ok || !result.data?.project) throw new Error(result.error);
+    return result.data.project;
   }
 
   async function startFigma() {

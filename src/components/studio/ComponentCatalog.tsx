@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { fetchJson, readJson } from "@/lib/client/json";
 
 /**
  * The catalog of everything that can go on a page.
@@ -57,10 +58,10 @@ export function ComponentCatalog({ projectId, pageId, pageName, onClose, onAdded
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    fetch("/api/components")
-      .then((response) => response.json())
-      .then(setCatalog)
-      .catch((caught) => setError(String(caught)));
+    void fetchJson<Catalog>("/api/components", "the component catalog").then((result) => {
+      if (result.ok && result.data) setCatalog(result.data);
+      else setError(result.error);
+    });
   }, []);
 
   useEffect(() => {
@@ -112,8 +113,8 @@ export function ComponentCatalog({ projectId, pageId, pageName, onClose, onAdded
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pageId, type: item.id, source: item.source }),
       });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error ?? "Could not add that");
+      const result = await readJson<unknown>(response, "the section being added");
+      if (!result.ok) throw new Error(result.error);
       onAdded();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));

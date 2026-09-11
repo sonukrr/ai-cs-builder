@@ -161,6 +161,21 @@ export const ExternalLinkIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const ImageIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3" y="5" width="18" height="14" rx="2.5" />
+    <circle cx="8.5" cy="9.5" r="1.5" fill="currentColor" stroke="none" />
+    <path d="M3 16l5-5 4 4 6-6 3 3" />
+  </Icon>
+);
+
+export const SparklesIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 2l1.4 3.6a3 3 0 001.8 1.8L19 9l-3.6 1.4a3 3 0 00-1.8 1.8L12 16l-1.4-3.6a3 3 0 00-1.8-1.8L5 9l3.6-1.4a3 3 0 001.8-1.8L12 2z" />
+    <path d="M5 16l.6 1.4a2 2 0 00.8.8l1.4.6-1.4.6a2 2 0 00-.8.8L5 22l-.6-1.4a2 2 0 00-.8-.8l-1.4-.6 1.4-.6a2 2 0 00.8-.8L5 16z" />
+  </Icon>
+);
+
 export const PaletteIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M12 3a9 8.5 0 100 17c1 0 1.6-.6 1.6-1.4 0-.4-.2-.7-.4-1-.3-.3-.4-.6-.4-1 0-.8.6-1.4 1.4-1.4H16a4 4 0 004-4c0-4.4-3.6-8.2-8-8.2z" />

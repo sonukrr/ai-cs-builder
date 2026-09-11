@@ -177,6 +177,9 @@ select {
 .start,
 .fidelity,
 .catalog-backdrop {
+  /* The dark root color-scheme paints native scrollbars dark; these surfaces
+     are light, so opt them into light scrollbars/form controls. */
+  color-scheme: light;
   --l-bg: #f6f6f3;
   --l-bg-2: #fbfbf9;
   --l-surface: #ffffff;
@@ -1041,6 +1044,73 @@ select {
   margin-bottom: 8px;
 }
 
+/* Agent quick-action chips — pill shortcuts that look like AI affordances rather than regular buttons. */
+.agent-chips {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  margin-bottom: 8px;
+  padding: 6px 2px 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none; /* Firefox */
+}
+.agent-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.agent-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--l-border-strong);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--l-text-2);
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  box-shadow: var(--l-shadow-sm);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.agent-chip:hover:not(:disabled) {
+  background: var(--l-surface);
+  border-color: var(--l-accent);
+  color: var(--l-text);
+  box-shadow: 0 0 0 3px var(--l-accent-dim), var(--l-shadow-sm);
+  transform: translateY(-1px);
+}
+.agent-chip.is-active {
+  background: var(--l-accent-soft);
+  border-color: var(--l-accent);
+  color: var(--l-accent-strong);
+}
+.agent-chip:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+  color: var(--l-text-4);
+  background: var(--l-bg-2);
+  border-color: var(--l-border);
+  box-shadow: none;
+}
+
+/* The Stop control interrupts a running turn — red so it reads as a halt, not a routine action. */
+.studio .btn.btn-stop {
+  background: var(--l-bad);
+  border-color: var(--l-bad);
+  color: #ffffff;
+  box-shadow: 0 1px 2px rgba(192, 57, 43, 0.3);
+}
+.studio .btn.btn-stop:hover:not(:disabled) {
+  background: #a53228;
+  border-color: #a53228;
+}
+
 .selected-chip {
   display: inline-flex;
   align-items: center;
@@ -1759,6 +1829,102 @@ select {
   box-shadow: 0 0 0 3px rgba(18, 153, 107, 0.16);
 }
 
+/* ---- mobile menu (hamburger) ------------------------------------------- */
+
+/* Hidden on desktop; the media query below reveals it and hides the inline
+   nav + actions at the same breakpoint. */
+.l-mobile {
+  display: none;
+  margin-left: auto;
+}
+.l-menu-btn {
+  position: relative;
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(23, 24, 29, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.65);
+  color: var(--l-text);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.l-menu-btn:hover {
+  background: rgba(255, 255, 255, 0.95);
+}
+.l-mobile-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  background: rgba(17, 18, 23, 0.28);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+.l-mobile-sheet {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  z-index: 30;
+  width: min(78vw, 300px);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid rgba(23, 24, 29, 0.08);
+  box-shadow: 0 20px 48px -12px rgba(17, 18, 23, 0.3);
+  animation: sheet-in 0.18s ease both;
+}
+.l-mobile-sheet a {
+  color: var(--l-text);
+  text-decoration: none;
+  font-size: 16px;
+  font-weight: 500;
+  padding: 11px 12px;
+  border-radius: 9px;
+  transition: background 0.15s ease;
+}
+.l-mobile-sheet a:hover {
+  background: rgba(23, 24, 29, 0.05);
+}
+.l-mobile-sheet .l-btn {
+  justify-content: center;
+  margin-top: 6px;
+}
+.l-mobile-sheet .white-btn {
+  color: #ffffff !important;
+}
+.l-mobile-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+  color: var(--l-text-2);
+  font-weight: 500;
+  padding: 8px 12px 4px;
+}
+.l-mobile-status i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--l-good);
+  box-shadow: 0 0 0 3px rgba(18, 153, 107, 0.16);
+}
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 /* ---- layout container --------------------------------------------------- */
 
 .l-main {
@@ -2216,6 +2382,13 @@ select {
   }
   .l-status-dot {
     display: none;
+  }
+  .l-header-actions {
+    display: none;
+  }
+  .l-mobile {
+    display: block;
+    position: relative;
   }
   .l-entry-cards {
     grid-template-columns: 1fr;

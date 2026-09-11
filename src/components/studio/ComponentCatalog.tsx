@@ -165,7 +165,7 @@ export function ComponentCatalog({ projectId, pageId, pageName, onClose, onAdded
 
         <div className="catalog-body">
           {error && (
-            <div className="notice" style={{ borderLeftColor: "var(--bad)", margin: "0 0 12px" }}>
+            <div className="notice" style={{ borderLeftColor: "var(--l-bad)", margin: "0 0 12px" }}>
               {error}
             </div>
           )}

@@ -10,6 +10,22 @@ import {
 import { ComponentCatalog } from "@/components/studio/ComponentCatalog";
 import { FidelityReview } from "@/components/studio/FidelityReview";
 import { PublishPanel } from "./PublishPanel";
+import {
+  ChatGlyph,
+  CloseIcon,
+  DesktopIcon,
+  GridIcon,
+  HistoryIcon,
+  MobileIcon,
+  PageIcon,
+  PlusIcon,
+  PreviewGlyph,
+  RowIcon,
+  SendIcon,
+  SparkMark,
+  StackIcon,
+  TabletIcon,
+} from "@/components/studio/icons";
 import type { Blueprint, Section } from "@/lib/blueprint/schema";
 import type { FidelityReport } from "@/lib/fidelity/types";
 
@@ -85,7 +101,16 @@ function layoutSummary(section: Section): string {
   return `${shape} · ${count} item${count === 1 ? "" : "s"}`;
 }
 
-const LAYOUT_GLYPH: Record<string, string> = { row: "⇉", grid: "▦" };
+const LAYOUT_ICON: Record<string, (p: { size?: number }) => React.ReactElement> = {
+  row: RowIcon,
+  grid: GridIcon,
+};
+
+const VIEWPORT_ICON: Record<ViewportName, (p: { size?: number }) => React.ReactElement> = {
+  desktop: DesktopIcon,
+  tablet: TabletIcon,
+  mobile: MobileIcon,
+};
 
 /**
  * The structure panel's rows, one level of nesting per call.
@@ -123,15 +148,20 @@ function SectionRows({
                 className={`tag ${isLayout ? "" : section.source === "zm-careers-lib" ? "tag-fn" : "tag-static"}`}
                 style={{ padding: "1px 5px" }}
               >
-                {isLayout
-                  ? LAYOUT_GLYPH[String(props.direction)] ?? "⇣"
-                  : section.source === "zm-careers-lib"
-                    ? "fn"
-                    : "—"}
+                {isLayout ? (
+                  (() => {
+                    const LayoutIcon = LAYOUT_ICON[String(props.direction)] ?? StackIcon;
+                    return <LayoutIcon size={11} />;
+                  })()
+                ) : section.source === "zm-careers-lib" ? (
+                  "fn"
+                ) : (
+                  "—"
+                )}
               </span>
               <span
                 className="label"
-                style={isLayout ? { color: "var(--text-dim)", fontStyle: "italic" } : undefined}
+                style={isLayout ? { color: "var(--l-text-2)", fontStyle: "italic" } : undefined}
               >
                 {section.label || (isLayout ? "Layout" : section.type)}
               </span>
@@ -409,7 +439,7 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
     return (
       <main className="start">
         <h1>Could not open this project</h1>
-        <div className="notice" style={{ borderLeftColor: "var(--bad)" }}>{error}</div>
+        <div className="notice" style={{ borderLeftColor: "var(--l-bad)" }}>{error}</div>
         <p style={{ marginTop: 20 }}>
           <a href="/projects/new">Back to the start</a>
         </p>
@@ -491,6 +521,9 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
       )}
 
       <header className="topbar">
+        <span className="brand-mark">
+          <SparkMark size={16} />
+        </span>
         <h1>{blueprint?.company.name ?? data.project.name}</h1>
         {data.project.currentVersion > 0 && (
           <span className="tag">v{data.project.currentVersion}</span>
@@ -507,6 +540,7 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
         <span className="spacer" />
 
         <button className="btn btn-sm" onClick={() => setShowHistory((v) => !v)}>
+          <HistoryIcon size={14} />
           History
         </button>
         <button
@@ -535,7 +569,8 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
               title="Browse everything you can add to this page"
               style={{ textTransform: "none", letterSpacing: 0 }}
             >
-              + Add
+              <PlusIcon size={13} />
+              Add
             </button>
           )}
         </div>
@@ -544,7 +579,7 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
           <div style={{ padding: "8px 0" }}>
             {data.versions.length === 0 && <div className="faint" style={{ padding: "8px 14px" }}>No versions yet.</div>}
             {data.versions.map((version) => (
-              <div key={version.version} style={{ padding: "9px 14px", borderBottom: "1px solid var(--border-soft)" }}>
+              <div key={version.version} style={{ padding: "9px 14px", borderBottom: "1px solid var(--l-border-soft)" }}>
                 <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
                   <span className="mono faint">v{version.version}</span>
                   {version.version !== data.project.currentVersion && (
@@ -568,7 +603,8 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
           blueprint.pages.map((page) => (
             <div key={page.id} className="page-group">
               <div className="page-name">
-                <strong style={{ color: "var(--text)" }}>{page.name}</strong>
+                <PageIcon size={13} style={{ color: "var(--l-text-4)", flex: "none" }} />
+                <strong style={{ color: "var(--l-text)" }}>{page.name}</strong>
                 <span className="mono faint">{page.path}</span>
               </div>
               <SectionRows
@@ -592,13 +628,27 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
 
       {/* Centre — the assistant */}
       <section className="panel panel-chat">
-        <div className="panel-head">Assistant</div>
+        <div className="panel-head">
+          <span className={`agent-status ${busy ? "is-working" : ""}`}>
+            <SparkMark size={12} />
+          </span>
+          Assistant
+          {busy && (
+            <span className="faint" style={{ textTransform: "none", letterSpacing: 0, fontWeight: 500 }}>
+              working…
+            </span>
+          )}
+        </div>
+        {busy && <div className="agent-progress" aria-hidden="true" />}
 
         <div className="chat-log" ref={logRef}>
           {data.conversation.length === 0 && !streaming && (
-            <div className="faint" style={{ fontSize: 13.5 }}>
-              Describe what you want to change. Click any part of the preview first and the
-              assistant will know what you mean by “this”.
+            <div className="empty-state">
+              <ChatGlyph size={26} />
+              <p>
+                Describe what you want to change. Click any part of the preview first and the
+                assistant will know what you mean by “this”.
+              </p>
             </div>
           )}
 
@@ -629,13 +679,17 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
           {streaming && <div className="turn-assistant">{streaming}</div>}
           {busy && !streaming && activity.length === 0 && (
             <div className="activity">
-              <span className="dot" />
+              <span className="typing-dots">
+                <i />
+                <i />
+                <i />
+              </span>
               <span>Thinking…</span>
             </div>
           )}
 
           {error && (
-            <div className="notice" style={{ borderLeftColor: "var(--bad)", marginTop: 4 }}>
+            <div className="notice" style={{ borderLeftColor: "var(--l-bad)", marginTop: 4 }}>
               {error}
             </div>
           )}
@@ -645,8 +699,13 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
           {selectedSection && (
             <div className="selected-chip">
               Editing: {blueprint?.pages.find((p) => p.id === pageId)?.name} → {selectedSection.label}
-              <button className="btn btn-sm" style={{ padding: "0 5px" }} onClick={() => setSelectedSectionId("")}>
-                ×
+              <button
+                className="btn btn-sm"
+                style={{ padding: "0 5px" }}
+                onClick={() => setSelectedSectionId("")}
+                aria-label="Stop editing this section"
+              >
+                <CloseIcon size={11} />
               </button>
             </div>
           )}
@@ -676,6 +735,7 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
             <button className="btn btn-primary btn-sm" onClick={() => send(draft)} disabled={busy || !draft.trim()}>
               Send
+              <SendIcon size={13} />
             </button>
           </div>
         </div>
@@ -703,17 +763,24 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
               ))}
             </select>
           )}
-          {(Object.keys(VIEWPORTS) as ViewportName[]).map((name) => (
-            <button
-              key={name}
-              className="btn btn-sm"
-              onClick={() => setViewport(name)}
-              title={`${VIEWPORTS[name].label} — ${VIEWPORTS[name].width}px`}
-              style={{ borderColor: viewport === name ? "var(--accent)" : undefined }}
-            >
-              {name[0].toUpperCase()}
-            </button>
-          ))}
+          <div className="viewport-switch" role="group" aria-label="Preview viewport">
+            {(Object.keys(VIEWPORTS) as ViewportName[]).map((name) => {
+              const ViewportIcon = VIEWPORT_ICON[name];
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  className={`viewport-switch-btn ${viewport === name ? "is-on" : ""}`}
+                  onClick={() => setViewport(name)}
+                  title={`${VIEWPORTS[name].label} — ${VIEWPORTS[name].width}px`}
+                  aria-label={VIEWPORTS[name].label}
+                  aria-pressed={viewport === name}
+                >
+                  <ViewportIcon size={15} />
+                </button>
+              );
+            })}
+          </div>
 
           {/*
             The connector switch. All three run the same library components
@@ -728,7 +795,7 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
             style={{
               textTransform: "none",
               letterSpacing: 0,
-              borderColor: source === "live" ? "var(--good)" : undefined,
+              borderColor: source === "live" ? "var(--l-good)" : undefined,
             }}
           >
             <option value="sample">Sample data</option>
@@ -754,8 +821,9 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
               reloadKey={previewKey}
             />
           ) : (
-            <div className="faint" style={{ alignSelf: "center", fontSize: 13.5 }}>
-              {blueprint ? "Starting the preview…" : "The preview appears once there is a site to show."}
+            <div className="empty-state" style={{ alignSelf: "center" }}>
+              <PreviewGlyph size={28} className={blueprint ? "is-pulsing" : undefined} />
+              <p>{blueprint ? "Starting the preview…" : "The preview appears once there is a site to show."}</p>
             </div>
           )}
         </div>

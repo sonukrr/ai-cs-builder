@@ -314,13 +314,13 @@ export function PublishPanel({ projectId, companyName, blocking, onClose, onPubl
 
         <div className="catalog-body">
           {loadError && (
-            <div className="notice" style={{ borderLeftColor: "var(--bad)" }}>
+            <div className="notice" style={{ borderLeftColor: "var(--l-bad)" }}>
               {loadError}
             </div>
           )}
 
           {blocking > 0 && (
-            <div className="notice" style={{ borderLeftColor: "var(--bad)" }}>
+            <div className="notice" style={{ borderLeftColor: "var(--l-bad)" }}>
               {blocking} blocking issue{blocking === 1 ? "" : "s"} in the site. Publishing anyway
               will build whatever the blueprint currently describes — the deploy agent reports what
               it could and could not generate.
@@ -334,7 +334,7 @@ export function PublishPanel({ projectId, companyName, blocking, onClose, onPubl
           )}
 
           {preview && preview.libraryComponents.length > 0 && (
-            <div className="notice" style={{ borderLeftColor: "var(--good)" }}>
+            <div className="notice" style={{ borderLeftColor: "var(--l-good)" }}>
               <strong>{preview.libraryComponents.length} approved careers components run for real</strong>
               <div className="faint" style={{ fontSize: 12.5, marginTop: 4 }}>
                 {preview.libraryComponents.join(", ")}
@@ -426,7 +426,7 @@ export function PublishPanel({ projectId, companyName, blocking, onClose, onPubl
                       fontSize: 12,
                       lineHeight: 1.5,
                       color:
-                        destination.canWrite === false ? "var(--bad)" : "var(--text-dim)",
+                        destination.canWrite === false ? "var(--l-bad)" : "var(--l-text-2)",
                     }}
                   >
                     {destination.canWrite === false ? "✗ " : "✓ "}
@@ -571,7 +571,7 @@ export function PublishPanel({ projectId, companyName, blocking, onClose, onPubl
           )}
 
           {error && (
-            <div className="notice" style={{ borderLeftColor: "var(--bad)" }}>
+            <div className="notice" style={{ borderLeftColor: "var(--l-bad)" }}>
               {error}
             </div>
           )}
@@ -582,10 +582,10 @@ export function PublishPanel({ projectId, companyName, blocking, onClose, onPubl
               style={{
                 borderLeftColor:
                   result.status === "running"
-                    ? "var(--accent)"
+                    ? "var(--l-accent)"
                     : result.status === "succeeded"
-                      ? "var(--good)"
-                      : "var(--bad)",
+                      ? "var(--l-good)"
+                      : "var(--l-bad)",
               }}
             >
               <strong>

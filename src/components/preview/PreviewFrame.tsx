@@ -119,7 +119,7 @@ export function PreviewFrame({
     return (
       <iframe
         ref={frameRef}
-        key={`${projectId}-${source}-${reloadKey}`}
+        key={`${projectId}-${reloadKey}`}
         src={src}
         title="Career site preview"
         style={{ width: "100%", height: "100%", border: 0, background: "#fff", display: "block" }}

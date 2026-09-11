@@ -1,14 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { PreviewFrame, type DataSource } from "@/components/preview/PreviewFrame";
+import { PreviewFrame } from "@/components/preview/PreviewFrame";
 import { CustomizePanel, type ThemeColors } from "@/components/preview/CustomizePanel";
 import type { Blueprint } from "@/lib/blueprint/schema";
 
 interface PreviewSettings {
   previewOrigin: string;
-  defaultSource: DataSource;
-  liveReady: boolean;
 }
 
 export function PreviewClient({ projectId }: { projectId: string }) {
@@ -56,7 +54,6 @@ export function PreviewClient({ projectId }: { projectId: string }) {
           projectId={projectId}
           pageId={blueprint.pages[0]?.id ?? ""}
           viewport="desktop"
-          source={settings.defaultSource}
           previewOrigin={settings.previewOrigin}
           reloadKey={reloadKey}
           fullPage

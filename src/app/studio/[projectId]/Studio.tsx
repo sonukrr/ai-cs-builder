@@ -258,13 +258,6 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
     setPageId((current) => current || next.blueprint?.pages[0]?.id || "");
     // The preview holds its own copy of the blueprint; tell it to refetch.
     setPreviewKey((key) => key + 1);
-
-    // The agent may have researched job data during the turn, which enables a
-    // data source that was not offered a moment ago.
-    void fetchJson<{ dataset?: { roles?: unknown[] } }>(
-      `/api/projects/${projectId}/dataset`,
-      "the researched job data",
-    ).then((result) => setHasDataset(Boolean(result.data?.dataset?.roles?.length)));
     // Any full-preview tab open in another window holds its own copy too.
     previewChannel.current?.postMessage({ type: "reload" });
 
@@ -278,14 +271,7 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
   useEffect(() => {
     (async () => {
       const result = await fetchJson<PreviewSettings>("/api/preview-config", "the preview settings");
-      if (!result.ok || !result.data) return;
-      const config = result.data;
-      setSettings(config);
-      // Never open on a source that cannot serve anything yet.
-      setSource(config.defaultSource === "live" && !config.liveReady ? "sample" : config.defaultSource);
-      const response = await fetch("/api/preview-config");
-      if (!response.ok) return;
-      setSettings((await response.json()) as PreviewSettings);
+      if (result.ok && result.data) setSettings(result.data);
     })();
   }, []);
 

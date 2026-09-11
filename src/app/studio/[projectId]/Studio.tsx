@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { PreviewFrame, VIEWPORTS, type DataSource, type ViewportName } from "@/components/preview/PreviewFrame";
+import { PreviewFrame, VIEWPORTS, type ViewportName } from "@/components/preview/PreviewFrame";
 import { ComponentCatalog } from "@/components/studio/ComponentCatalog";
 import { FidelityReview } from "@/components/studio/FidelityReview";
 import { PublishPanel } from "./PublishPanel";
@@ -11,7 +11,6 @@ import {
   ChatGlyph,
   CloseIcon,
   DesktopIcon,
-  ExpandIcon,
   ExternalLinkIcon,
   GridIcon,
   HistoryIcon,
@@ -64,6 +63,15 @@ interface ProjectData {
   versions: { version: number; createdAt: string; summary: string }[];
   conversation: Turn[];
 }
+
+/**
+ * Where the studio's data-source switcher thinks the preview is reading from.
+ *
+ * Cosmetic only: the preview iframe itself (PreviewFrame / buildPreviewUrl)
+ * always requests live data now, so this state drives the toolbar's label and
+ * the "researched data" gating, not what the iframe actually shows.
+ */
+type DataSource = "sample" | "custom" | "live";
 
 interface PreviewSettings {
   previewOrigin: string;
@@ -962,30 +970,6 @@ export function Studio({ projectId, opening }: { projectId: string; opening: str
               ))}
             </select>
           )}
-          {settings && (
-            <select
-              className="btn btn-sm"
-              value={source}
-              onChange={(event) => setSource(event.target.value as DataSource)}
-              title="Which job data the preview renders against"
-              aria-label="Preview data source"
-              style={{ textTransform: "none", letterSpacing: 0 }}
-            >
-              <option value="sample">Sample data</option>
-              {hasDataset && <option value="custom">Researched data</option>}
-              {settings.liveReady && <option value="live">Live Careers API</option>}
-            </select>
-          )}
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={() => window.open(`/preview/${projectId}`, "_blank", "noopener,noreferrer")}
-            title="Open the full-page preview in a new tab"
-            aria-label="Open full-page preview"
-          >
-            <ExpandIcon size={13} />
-          </button>
-
           <div className="viewport-switch" role="group" aria-label="Preview viewport">
             {(Object.keys(VIEWPORTS) as ViewportName[]).map((name) => {
               const ViewportIcon = VIEWPORT_ICON[name];
@@ -1027,7 +1011,6 @@ export function Studio({ projectId, opening }: { projectId: string; opening: str
               pageId={pageId}
               viewport={viewport}
               previewOrigin={settings.previewOrigin}
-              source={source}
               selectedSectionId={selectedSectionId}
               onSelect={setSelectedSectionId}
               reloadKey={previewKey}

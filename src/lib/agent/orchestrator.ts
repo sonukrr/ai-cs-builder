@@ -1,5 +1,5 @@
-import type Anthropic from "@anthropic-ai/sdk";
-import { anthropic, describeApiError, MODEL } from "./client";
+import Anthropic from "@anthropic-ai/sdk";
+import { anthropic, anthropicOffice, describeApiError, MODEL, OFFICE_MODEL } from "./client";
 import { systemPrompt } from "./prompt";
 import { buildTools } from "./tools";
 import { buildResearchTools } from "./research-tools";
@@ -55,6 +55,19 @@ function researchTools(onActivity: (tool: string, summary: string) => void) {
 }
 
 /**
+ * Whether a failed call is the specific case worth falling over to the office
+ * key for: the personal key has run out of quota (or Astra reports the same
+ * for the office key on a later attempt, harmlessly re-checked here too).
+ *
+ * Deliberately narrow — an auth failure, a bad request, or a genuine bug
+ * should surface as an error rather than silently retry against a different
+ * provider and obscure what actually went wrong.
+ */
+function isQuotaOrAuthError(error: unknown): boolean {
+  return error instanceof Anthropic.RateLimitError;
+}
+
+/**
  * Runs one turn, yielding events as they happen.
  *
  * The caller streams these to the browser; nothing here knows about HTTP.
@@ -97,73 +110,98 @@ export async function* runAgent(input: RunInput): AsyncGenerator<AgentEvent> {
   let assistantText = "";
   const activity: { tool: string; summary: string }[] = [];
 
-  try {
-    const runner = anthropic().beta.messages.toolRunner(
-      {
-        model: MODEL,
-        max_tokens: 32000,
-        thinking: { type: "adaptive" },
-        output_config: { effort: "high" },
-        system: systemPrompt(),
-        tools: [...tools, ...researchTools(onActivity)],
-        messages,
-        stream: true,
-        max_iterations: 16,
-      },
-      // Passing the signal cancels the underlying HTTP request the moment the
-      // admin hits Stop, rather than only after the current model call returns.
-      { signal },
-    );
+  // Personal key first, office/Astra key as a fallback. The switch only
+  // happens before anything has reached the browser for this turn — once a
+  // token has streamed out under one client, retrying under the other would
+  // mean re-running (and potentially re-executing tools for) a turn the
+  // administrator has already partly seen, so a failure past that point is
+  // just reported instead.
+  const clients: { build: () => Anthropic; model: string }[] = [
+    { build: anthropic, model: MODEL },
+    { build: anthropicOffice, model: OFFICE_MODEL },
+  ];
 
-    for await (const stream of runner) {
-      // Stop between iterations too, so a multi-tool turn ends promptly.
-      if (stopped()) break;
-      // Text arrives token by token so the studio feels responsive during the
-      // long tool-heavy turns that an import produces.
-      const deltas: string[] = [];
-      stream.on("text", (delta) => deltas.push(delta));
+  let streamedAnything = false;
 
-      const finalMessage = await stream.finalMessage();
+  for (let attempt = 0; attempt < clients.length; attempt += 1) {
+    const { build, model } = clients[attempt];
+    const isLastAttempt = attempt === clients.length - 1;
 
+    try {
+      const runner = build().beta.messages.toolRunner(
+        {
+          model,
+          max_tokens: 32000,
+          thinking: { type: "adaptive" },
+          output_config: { effort: "high" },
+          system: systemPrompt(),
+          tools: [...tools, ...researchTools(onActivity)],
+          messages,
+          stream: true,
+          max_iterations: 16,
+        },
+        // Passing the signal cancels the underlying HTTP request the moment the
+        // admin hits Stop, rather than only after the current model call returns.
+        { signal },
+      );
 
-      for (const delta of deltas) {
-        assistantText += delta;
-        yield { type: "text", text: delta };
+      for await (const stream of runner) {
+        // Stop between iterations too, so a multi-tool turn ends promptly.
+        if (stopped()) break;
+        // Text arrives token by token so the studio feels responsive during the
+        // long tool-heavy turns that an import produces.
+        const deltas: string[] = [];
+        stream.on("text", (delta) => deltas.push(delta));
+
+        const finalMessage = await stream.finalMessage();
+
+        for (const delta of deltas) {
+          streamedAnything = true;
+          assistantText += delta;
+          yield { type: "text", text: delta };
+        }
+
+        while (pending.length > 0) {
+          streamedAnything = true;
+          const event = pending.shift()!;
+          if (event.type === "activity") activity.push({ tool: event.tool, summary: event.summary });
+          yield event;
+        }
+
+        // A server-side tool can pause a turn mid-flight, and the runner does not
+        // resume it on its own, so a paused turn would otherwise end the answer
+        // silently. Only the built-in web_search path can land here — a
+        // client-side tool call stops the turn with tool_use, which the runner
+        // already handles — but the guard costs nothing and one of the two paths
+        // is always live.
+        if (finalMessage.stop_reason === "pause_turn") {
+          runner.pushMessages({ role: "assistant", content: finalMessage.content });
+        }
+
+        if (finalMessage.stop_reason === "refusal") {
+          yield {
+            type: "error",
+            message: "The model declined this request. Try rephrasing what you want to change.",
+          };
+          break;
+        }
       }
 
-      while (pending.length > 0) {
-        const event = pending.shift()!;
-        if (event.type === "activity") activity.push({ tool: event.tool, summary: event.summary });
-        yield event;
-      }
+      break; // This attempt ran to completion — don't fall through to the next client.
+    } catch (error) {
+      // A stop is a deliberate cancellation, not a failure: keep whatever text
+      // streamed so far and fall through to persist it, without a red error,
+      // and never fail over to the other client for a stop.
+      const aborted = stopped() || (error instanceof Error && error.name === "AbortError");
+      if (aborted) break;
 
-      // A server-side tool can pause a turn mid-flight, and the runner does not
-      // resume it on its own, so a paused turn would otherwise end the answer
-      // silently. Only the built-in web_search path can land here — a
-      // client-side tool call stops the turn with tool_use, which the runner
-      // already handles — but the guard costs nothing and one of the two paths
-      // is always live.
-      if (finalMessage.stop_reason === "pause_turn") {
-        runner.pushMessages({ role: "assistant", content: finalMessage.content });
-      }
+      const shouldFailOver = !streamedAnything && !isLastAttempt && isQuotaOrAuthError(error);
+      if (shouldFailOver) continue;
 
-      if (finalMessage.stop_reason === "refusal") {
-        yield {
-          type: "error",
-          message: "The model declined this request. Try rephrasing what you want to change.",
-        };
-        break;
-      }
-    }
-  } catch (error) {
-    // A stop is a deliberate cancellation, not a failure: keep whatever text
-    // streamed so far and fall through to persist it, without a red error.
-    const aborted =
-      stopped() || (error instanceof Error && error.name === "AbortError");
-    if (!aborted) {
       const detail = describeApiError(error);
       yield { type: "error", message: detail };
       assistantText ||= `Something went wrong: ${detail}`;
+      break;
     }
   }
 

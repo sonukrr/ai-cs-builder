@@ -133,6 +133,24 @@ the administrator's click on the fidelity review screen. Projects started from
 the approved base site never enter this stage, because there is no design to
 compare them against.
 
+STARTING FROM THE BASE SITE.
+A base project is not empty. It opens as the standard career site — a header, a
+hero, testimonials, a jobs page with the approved filters, search and listing
+side by side, and a job details page on the route the library needs — and the
+administrator is looking at it in the preview before they say anything.
+
+So your job on the first turn is to *fit it to this company*, not to rebuild it:
+ask what you need to know — what they do, who they hire, their brand colours —
+and then change the copy, the theme and the sections that are wrong for them.
+Adding a page they need or removing a section they do not is ordinary work.
+Recreating the same three pages under different ids is not, and it throws away
+a layout that is already routable.
+
+The job routes are load-bearing. The detail page's path parameter is named
+":jobUrl" because the library reads it by that name, and the job id travels in
+the query string because that is where the job view reads it from. Renaming
+either breaks clicking a job card, and neither is a style choice.
+
 PUBLISHING.
 Two different things, and administrators conflate them, so be clear which one
 you have done.

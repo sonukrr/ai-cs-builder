@@ -92,6 +92,7 @@ hard ceiling on what a single edit can do.
 | Area | Files |
 |---|---|
 | Blueprint schema, operations, validation | [`src/lib/blueprint/`](src/lib/blueprint/) |
+| The site every base project starts as | [`src/lib/blueprint/default-site.ts`](src/lib/blueprint/default-site.ts) |
 | Generated component registry | [`src/lib/registry/`](src/lib/registry/) |
 | Figma backends and the band summarizer | [`src/lib/providers/figma/`](src/lib/providers/figma/) |
 | Base site (GitHub) with write guard rails | [`src/lib/providers/github/`](src/lib/providers/github/) |
@@ -408,6 +409,55 @@ read unguarded (omitting it throws on every change-detection pass), `facets` is
 keyed by *display* name and mapped back through `facetsMapping`, and `skillSet`
 and `locAgg` are comma-separated **strings** while the neighbouring `*List`
 fields are real arrays.
+
+---
+
+## The default career site
+
+A base project does not start empty. `POST /api/projects` writes version 1 from
+[`defaultCareerSite`](src/lib/blueprint/default-site.ts) before anyone says
+anything, so the studio opens on a complete, routable site and the conversation
+starts at "change this" rather than "build me something". The agent then adjusts
+it; `start_from_base` seeds from the same function, so both paths converge.
+
+```
+/                header · hero (CTA → /jobs) · testimonials · footer
+/jobs            header · [ filters (300px) | search · chips · listing · pagination ] · footer
+/jobs/:jobUrl    header · job details · footer
+```
+
+Everything in it is ordinary blueprint — sections, props, content, layout
+containers — so every part can be changed by the same operations that change any
+other site. Nothing about it is special-cased.
+
+**The job routes are a contract, not a preference.** Reading the library's own
+source settles all three:
+
+| | What it does |
+|---|---|
+| `lib-jobs-list` | emits `(jobURL)` as `"<slug>?id=<n>"` and **navigates nowhere** |
+| `lib-job-view` | reads the job id from `queryParams['id']` |
+| `lib-job-apply` | reads `route.snapshot.paramMap.get('jobUrl')` |
+
+So the detail page is `/jobs/:jobUrl` with the id in the query, and the Angular
+emitter binds that output to an `openJob` handler on the page component —
+without it, clicking a job card does nothing at all, because the library is
+waiting for the host to route. Renaming the parameter to `:id` would break the
+apply flow silently, since the library looks it up by name.
+
+The testimonials are written placeholders with branded placeholder portraits,
+not scraped quotes: somebody else's words about somebody else's employer are
+their copyright and would be a lie on this site. They are complete enough to
+judge the layout and obviously meant to be replaced.
+
+**One bug this surfaced in the preview host too.** Bootstrap is loaded globally
+because the library depends on it, and it claims `.nav`, `.row` and `.card` for
+itself. Specificity does not settle that — the section styles are more specific,
+but only for properties they actually declare, and `display` was not one of
+them. Bootstrap's `.nav { display: flex }` turned the header into a flex
+container whose inner wrapper shrink-wrapped and centred, so the logo could not
+sit on the left however the header was written. Both stylesheets now re-declare
+what Bootstrap would otherwise decide.
 
 ---
 
@@ -816,6 +866,15 @@ resume upload to the jobs page") that read the blueprint, checked the component
 spec, applied both edits, saved a version, and flagged an unrelated problem it
 noticed in the existing structure.
 
+**The default site was verified by clicking through it.** Generated as Angular,
+built, served, and driven with a real browser: home loads; the header nav and
+the hero CTA both route to `/jobs`; the facets, search and listing render as the
+real components and return ten live roles; searching "java" returns results;
+clicking a card opens
+`/jobs/java-application-developer-…?id=253847`; a refresh on that route works;
+back and forward navigate; the filter column stacks at 390px; every image
+resolves. 18 of 19 checks pass — the exception is below.
+
 The preview was verified in a real browser: the jobs page renders
 `lib-zm-search`, `lib-facets`, `lib-jobs-list`, ten `lib-job` cards and
 `lib-pagination`, with the filter rail showing Department, Location, Employment
@@ -858,6 +917,16 @@ The GitHub MCP backend was verified against GitHub's hosted server: it connects,
 sees 44 tools, reads the base repository (48 files, framework detected, 7 routes
 parsed out of the routing module), and refuses a protected branch and an
 unwritable path exactly as the REST backend does.
+
+**A known failure, and it is not in this code.** On the job details route the
+library's own call to `jobs-service/v1/jobs/careersite` returns `400 Bad
+Request` for this tenant, so `lib-job-view` renders and honestly says "No data
+found". Every payload variant was tried by hand — with and without the
+`TenantGroupId` header, with `domain` added, with the id as a number — and all
+of them are rejected, so it is an API or tenant condition rather than anything
+the studio generates. Everything upstream of it works: the search returns
+roles, the card click routes correctly, and the id arrives in the query where
+the component reads it.
 
 **Not verified:** the live Figma Dev Mode MCP connection, and a complete publish
 to a real repository. The Figma MCP client is written against Figma's tool

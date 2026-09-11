@@ -234,9 +234,57 @@ function layoutClass(page: Page, section: Section): string {
   return `layout-${page.id}--${section.id}`;
 }
 
+/* ------------------------------------------------------------------ routing */
+
+/** The section types that list jobs and therefore emit a job to open. */
+const JOB_LIST_TYPES = new Set(["job-listing", "job-listing-elasticsearch"]);
+
+/**
+ * Where a job card navigates to, if this site has somewhere to send it.
+ *
+ * `lib-jobs-list` navigates nowhere. It emits `(jobURL)` as
+ * `"<slug>?id=<n>"` and leaves routing to the host — so a generated site that
+ * ignores the output is a job list whose cards do nothing. This finds the page
+ * that renders `lib-job-view` and returns the static part of its path, which
+ * is what the page component then navigates to.
+ *
+ * Null when the site has no detail page, and then the binding is not emitted
+ * at all: a handler that navigates to a route that does not exist is worse
+ * than a card that visibly does nothing.
+ */
+function jobDetailRoute(blueprint: Blueprint): string[] | null {
+  for (const page of blueprint.pages) {
+    let found = false;
+    walkSections(page.sections, (section) => {
+      if (section.type === "job-details" && section.source === "zm-careers-lib") found = true;
+    });
+    if (!found) continue;
+
+    const segments = page.path.split("/").filter(Boolean);
+    // The trailing `:jobUrl` is supplied per job, so it is not part of the
+    // prefix the component navigates to.
+    const prefix = segments.filter((segment) => !segment.startsWith(":"));
+    return prefix;
+  }
+  return null;
+}
+
+function pageOpensJobs(page: Page): boolean {
+  let found = false;
+  walkSections(page.sections, (section) => {
+    if (JOB_LIST_TYPES.has(section.type) && section.source === "zm-careers-lib") found = true;
+  });
+  return found;
+}
+
 /* ----------------------------------------------------------------- sections */
 
-function emitFunctionalSection(section: Section, depth: number, placement: string[]): string {
+function emitFunctionalSection(
+  section: Section,
+  depth: number,
+  placement: string[],
+  jobRoute: string[] | null,
+): string {
   const component = getComponent(section.type);
   const pad = INDENT.repeat(depth);
   if (!component) {
@@ -247,6 +295,9 @@ function emitFunctionalSection(section: Section, depth: number, placement: strin
     ...Object.entries(section.props)
       .filter(([name]) => name in component.props)
       .map(([name, value]) => attr(name, value)),
+    // The one output this emitter binds: without it, clicking a job card does
+    // nothing at all. See `jobDetailRoute`.
+    JOB_LIST_TYPES.has(section.type) && jobRoute ? `(jobURL)="openJob($event)"` : null,
     placement.length > 0 ? attr("style", placement.join("; ")) : null,
   ].filter((a): a is string => a !== null);
 
@@ -331,7 +382,13 @@ function emitCustomHtmlSection(section: Section, depth: number, placement: strin
     .join("\n");
 }
 
-function emitLayoutSection(section: Section, page: Page, depth: number, placement: string[]): string {
+function emitLayoutSection(
+  section: Section,
+  page: Page,
+  depth: number,
+  placement: string[],
+  jobRoute: string[] | null,
+): string {
   const pad = INDENT.repeat(depth);
   const props = layoutPropsOf(section);
   const classes = ["layout", `layout--${props.direction}`, layoutClass(page, section)].join(" ");
@@ -339,7 +396,7 @@ function emitLayoutSection(section: Section, page: Page, depth: number, placemen
 
   const children = childrenOf(section)
     .filter((child) => child.visible)
-    .map((child) => emitSection(child, page, depth + 1, placementStyle(props, child)))
+    .map((child) => emitSection(child, page, depth + 1, placementStyle(props, child), jobRoute))
     .join("\n\n");
 
   return [
@@ -350,18 +407,26 @@ function emitLayoutSection(section: Section, page: Page, depth: number, placemen
   ].join("\n");
 }
 
-function emitSection(section: Section, page: Page, depth: number, placement: string[]): string {
-  if (isLayoutSection(section)) return emitLayoutSection(section, page, depth, placement);
-  if (section.source === "zm-careers-lib") return emitFunctionalSection(section, depth, placement);
+function emitSection(
+  section: Section,
+  page: Page,
+  depth: number,
+  placement: string[],
+  jobRoute: string[] | null,
+): string {
+  if (isLayoutSection(section)) return emitLayoutSection(section, page, depth, placement, jobRoute);
+  if (section.source === "zm-careers-lib") {
+    return emitFunctionalSection(section, depth, placement, jobRoute);
+  }
   return isCustomHtml(section)
     ? emitCustomHtmlSection(section, depth, placement)
     : emitStaticSection(section, depth, placement);
 }
 
-function emitPageTemplate(page: Page): string {
+function emitPageTemplate(page: Page, jobRoute: string[] | null): string {
   const body = page.sections
     .filter((s) => s.visible)
-    .map((section) => emitSection(section, page, 1, []))
+    .map((section) => emitSection(section, page, 1, [], jobRoute))
     .join("\n\n");
 
   return `<!-- Generated from the Site Blueprint. Edit the blueprint, not this file. -->\n<main class="page page--${page.id}">\n${body}\n</main>\n`;
@@ -500,16 +565,58 @@ function componentClassName(page: Page): string {
   return `${pascal}PageComponent`;
 }
 
-function emitPageComponent(page: Page): string {
+function emitPageComponent(page: Page, jobRoute: string[] | null): string {
+  const opensJobs = pageOpensJobs(page) && jobRoute !== null;
+
+  if (!opensJobs) {
+    return [
+      "// Generated from the Site Blueprint.",
+      "import { Component } from '@angular/core';",
+      "",
+      "@Component({",
+      `${INDENT}selector: 'app-page-${page.id}',`,
+      `${INDENT}templateUrl: './${page.id}.component.html',`,
+      "})",
+      `export class ${componentClassName(page)} {}`,
+      "",
+    ].join("\n");
+  }
+
+  const prefix = (jobRoute ?? []).map((segment) => `'${segment}'`).join(", ");
+
   return [
     "// Generated from the Site Blueprint.",
     "import { Component } from '@angular/core';",
+    "import { Router } from '@angular/router';",
     "",
     "@Component({",
     `${INDENT}selector: 'app-page-${page.id}',`,
     `${INDENT}templateUrl: './${page.id}.component.html',`,
     "})",
-    `export class ${componentClassName(page)} {}`,
+    `export class ${componentClassName(page)} {`,
+    `${INDENT}constructor(private readonly router: Router) {}`,
+    "",
+    `${INDENT}/**`,
+    `${INDENT} * Opens the job a card was clicked on.`,
+    `${INDENT} *`,
+    `${INDENT} * lib-jobs-list emits "<slug>?id=<n>" and navigates nowhere, so this is`,
+    `${INDENT} * what makes a job card work. The two halves go to different places on`,
+    `${INDENT} * purpose: the slug becomes the route parameter because lib-job-apply`,
+    `${INDENT} * reads paramMap.get('jobUrl'), and everything after the ? stays in the`,
+    `${INDENT} * query because lib-job-view reads the id from queryParams.`,
+    `${INDENT} */`,
+    `${INDENT}openJob(emitted: string): void {`,
+    `${INDENT}${INDENT}const [slug, query] = String(emitted ?? '').split('?');`,
+    `${INDENT}${INDENT}if (!slug) return;`,
+    "",
+    `${INDENT}${INDENT}const queryParams: Record<string, string> = {};`,
+    `${INDENT}${INDENT}new URLSearchParams(query ?? '').forEach((value, key) => {`,
+    `${INDENT}${INDENT}${INDENT}queryParams[key] = value;`,
+    `${INDENT}${INDENT}});`,
+    "",
+    `${INDENT}${INDENT}void this.router.navigate([${prefix ? `${prefix}, ` : ""}slug], { queryParams });`,
+    `${INDENT}}`,
+    "}",
     "",
   ].join("\n");
 }
@@ -522,10 +629,17 @@ function emitPageComponent(page: Page): string {
  */
 export function emitAngularSite(blueprint: Blueprint): EmittedFile[] {
   const files: EmittedFile[] = [];
+  const jobRoute = jobDetailRoute(blueprint);
 
   for (const page of blueprint.pages) {
-    files.push({ path: `src/app/pages/${page.id}/${page.id}.component.html`, content: emitPageTemplate(page) });
-    files.push({ path: `src/app/pages/${page.id}/${page.id}.component.ts`, content: emitPageComponent(page) });
+    files.push({
+      path: `src/app/pages/${page.id}/${page.id}.component.html`,
+      content: emitPageTemplate(page, jobRoute),
+    });
+    files.push({
+      path: `src/app/pages/${page.id}/${page.id}.component.ts`,
+      content: emitPageComponent(page, jobRoute),
+    });
   }
 
   files.push({ path: "src/app/app.routes.ts", content: emitRoutes(blueprint) });

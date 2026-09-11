@@ -2,6 +2,7 @@ import { capabilities } from "@/lib/agent/capabilities";
 import { hasApiKey } from "@/lib/agent/client";
 import { registry } from "@/lib/registry";
 import { StartPoints } from "./StartPoints";
+import { MobileMenu } from "./MobileMenu";
 import {
   BrandMark,
   SparkleIcon,
@@ -68,6 +69,7 @@ export default function NewProject() {
               Start building
             </a>
           </div>
+          <MobileMenu readyCount={readyCount} />
         </div>
       </header>
 
@@ -188,7 +190,7 @@ export default function NewProject() {
           </div>
           <div className="l-footer-cols">
             <div className="l-footer-col">
-              <h4>Product</h4>
+              <h4>Features</h4>
               <a href="#start">Get started</a>
               <a href="#capabilities">Capabilities</a>
               <a href="#start">Import Figma</a>
@@ -201,11 +203,6 @@ export default function NewProject() {
               <a href="https://github.com/sonukrr/ai-cs-builder" target="_blank" rel="noreferrer">
                 GitHub
               </a>
-            </div>
-            <div className="l-footer-col">
-              <h4>Legal</h4>
-              <a href="#">Privacy</a>
-              <a href="#">Terms</a>
             </div>
           </div>
         </div>

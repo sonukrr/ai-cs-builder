@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { PreviewFrame, VIEWPORTS, type ViewportName } from "@/components/preview/PreviewFrame";
+import { PreviewFrame, VIEWPORTS, type DataSource, type ViewportName } from "@/components/preview/PreviewFrame";
 import { ComponentCatalog } from "@/components/studio/ComponentCatalog";
 import { FidelityReview } from "@/components/studio/FidelityReview";
 import { PublishPanel } from "./PublishPanel";
@@ -15,6 +15,7 @@ import {
   ExternalLinkIcon,
   GridIcon,
   HistoryIcon,
+  ImageIcon,
   MobileIcon,
   PageIcon,
   PaletteIcon,
@@ -23,6 +24,7 @@ import {
   ReloadIcon,
   RowIcon,
   SendIcon,
+  SparklesIcon,
   SparkMark,
   StopIcon,
   StackIcon,
@@ -65,6 +67,10 @@ interface ProjectData {
 
 interface PreviewSettings {
   previewOrigin: string;
+  /** Data source the studio opens against: sample | custom | live. */
+  defaultSource: DataSource;
+  /** Whether the live careers API can serve this preview yet. */
+  liveReady: boolean;
 }
 
 /** Sections nest, so anything that looks one up has to walk the whole tree. */
@@ -211,6 +217,10 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
   const [selectedSectionId, setSelectedSectionId] = useState<string>("");
   const [viewport, setViewport] = useState<ViewportName>("desktop");
   const [settings, setSettings] = useState<PreviewSettings | null>(null);
+  /** The data source the preview renders against. */
+  const [source, setSource] = useState<DataSource>("live");
+  /** Whether the agent has researched job data, which unlocks the custom source. */
+  const [hasDataset, setHasDataset] = useState(false);
   const [showCatalog, setShowCatalog] = useState(false);
   const [showPublish, setShowPublish] = useState(false);
   const [showStyleEditor, setShowStyleEditor] = useState(false);
@@ -236,6 +246,9 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
   const fidelityRun = useRef(-1);
   /** Tells any open full-preview tab to reload after a change lands. */
   const previewChannel = useRef<BroadcastChannel | null>(null);
+  /** Highlights the most recently used agent-action chip and resets it after a short beat. */
+  const [activeChip, setActiveChip] = useState<string | null>(null);
+  const chipTimer = useRef<number | null>(null);
 
   useEffect(() => {
     if (typeof BroadcastChannel === "undefined") return;
@@ -283,9 +296,6 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
       setSettings(config);
       // Never open on a source that cannot serve anything yet.
       setSource(config.defaultSource === "live" && !config.liveReady ? "sample" : config.defaultSource);
-      const response = await fetch("/api/preview-config");
-      if (!response.ok) return;
-      setSettings((await response.json()) as PreviewSettings);
     })();
   }, []);
 
@@ -451,6 +461,28 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
     abortRef.current?.abort();
   }, []);
 
+  /** Briefly highlights an agent chip so the click feels responsive. */
+  const activateChip = useCallback((id: string) => {
+    setActiveChip(id);
+    if (chipTimer.current) window.clearTimeout(chipTimer.current);
+  }, []);
+
+  /**
+   * If a chip triggered an agent turn, keep it highlighted for the whole run
+   * and then clear it once the assistant finishes — so the chip communicates
+   * "I'm the action that is currently happening".
+   */
+  useEffect(() => {
+    if (busy && activeChip) {
+      if (chipTimer.current) window.clearTimeout(chipTimer.current);
+      return;
+    }
+    if (!busy && activeChip) {
+      if (chipTimer.current) window.clearTimeout(chipTimer.current);
+      chipTimer.current = window.setTimeout(() => setActiveChip(null), 1200);
+    }
+  }, [busy, activeChip]);
+
   // Starting from base kicks the conversation off so the admin lands in a
   // dialogue rather than an empty box.
   useEffect(() => {
@@ -551,10 +583,14 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
           projectId={projectId}
           pageId={currentPage.id}
           pageName={currentPage.name}
-          onClose={() => setShowCatalog(false)}
+          onClose={() => {
+            setShowCatalog(false);
+            setActiveChip(null);
+          }}
           onAdded={() => {
             void load();
             setShowCatalog(false);
+            setActiveChip(null);
           }}
         />
       )}
@@ -563,10 +599,14 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
         <StyleEditor
           projectId={projectId}
           blueprint={blueprint}
-          onClose={() => setShowStyleEditor(false)}
+          onClose={() => {
+            setShowStyleEditor(false);
+            setActiveChip(null);
+          }}
           onSaved={() => {
             void load();
             setShowStyleEditor(false);
+            setActiveChip(null);
           }}
         />
       )}
@@ -771,6 +811,53 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
             </div>
           )}
 
+          <div className="agent-chips" role="list" aria-label="Agent quick actions">
+            <button
+              type="button"
+              className={`agent-chip ${activeChip === "components" ? "is-active" : ""}`}
+              onClick={() => {
+                activateChip("components");
+                setShowCatalog(true);
+              }}
+              disabled={busy || !blueprint}
+              title="Browse approved components and add one to the current page"
+              role="listitem"
+            >
+              <PlusIcon size={14} />
+              <span>Add components</span>
+            </button>
+            <button
+              type="button"
+              className={`agent-chip ${activeChip === "images" ? "is-active" : ""}`}
+              onClick={() => {
+                activateChip("images");
+                void send(
+                  "Find and pull relevant stock images for the career site sections that need them. If no stock provider is configured, use branded placeholders. Report what images were used and where.",
+                );
+              }}
+              disabled={busy}
+              title="Search for relevant images and apply them to the site"
+              role="listitem"
+            >
+              <ImageIcon size={14} />
+              <span>Pull images</span>
+            </button>
+            <button
+              type="button"
+              className={`agent-chip ${activeChip === "personalize" ? "is-active" : ""}`}
+              onClick={() => {
+                activateChip("personalize");
+                setShowStyleEditor(true);
+              }}
+              disabled={busy || !blueprint}
+              title="Personalize colours and company copy"
+              role="listitem"
+            >
+              <SparklesIcon size={14} />
+              <span>Personalize</span>
+            </button>
+          </div>
+
           <textarea
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
@@ -786,21 +873,22 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
           <div
             style={{
               display: "flex",
-              justifyContent: "space-between",
+              justifyContent: "flex-end",
               alignItems: "center",
+              gap: 8,
               marginTop: 8,
             }}
           >
-            <button
-              className="btn btn-sm"
-              onClick={stop}
-              disabled={!busy}
-              title="Stop the assistant"
-              style={{ visibility: busy ? "visible" : "hidden" }}
-            >
-              Stop
-              <StopIcon size={13} />
-            </button>
+            {busy && (
+              <button
+                className="btn btn-sm btn-stop"
+                onClick={stop}
+                title="Stop the assistant"
+              >
+                Stop
+                <StopIcon size={13} />
+              </button>
+            )}
             <button
               className="btn btn-primary btn-sm"
               onClick={() => send(draft)}
@@ -870,6 +958,20 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
               ))}
             </select>
           )}
+          {settings && (
+            <select
+              className="btn btn-sm"
+              value={source}
+              onChange={(event) => setSource(event.target.value as DataSource)}
+              title="Which job data the preview renders against"
+              aria-label="Preview data source"
+              style={{ textTransform: "none", letterSpacing: 0 }}
+            >
+              <option value="sample">Sample data</option>
+              {hasDataset && <option value="custom">Researched data</option>}
+              {settings.liveReady && <option value="live">Live Careers API</option>}
+            </select>
+          )}
           <button
             type="button"
             className="btn btn-sm"
@@ -899,9 +1001,18 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
             })}
           </div>
           <span className="spacer" style={{ flex: 1 }} />
-          <span className="live-indicator" title="The preview always pulls live job data from the Careers API">
+          <span
+            className="live-indicator"
+            title={
+              source === "live"
+                ? "The preview pulls live job data from the Careers API"
+                : source === "custom"
+                  ? "The preview renders against the agent's researched job data"
+                  : "The preview renders against built-in sample job data"
+            }
+          >
             <span className="live-dot" />
-            Live Careers API
+            {source === "live" ? "Live Careers API" : source === "custom" ? "Researched data" : "Sample data"}
           </span>
         </div>
 
@@ -912,6 +1023,7 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
               pageId={pageId}
               viewport={viewport}
               previewOrigin={settings.previewOrigin}
+              source={source}
               selectedSectionId={selectedSectionId}
               onSelect={setSelectedSectionId}
               reloadKey={previewKey}

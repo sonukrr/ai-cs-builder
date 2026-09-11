@@ -94,6 +94,13 @@ export const CloseIcon = (p: IconProps) => (
   </Icon>
 );
 
+/** A filled square — the universal "stop the running response" affordance. */
+export const StopIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none" />
+  </Icon>
+);
+
 export const HistoryIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M3.5 12a8.5 8.5 0 103-6.5L3 8" />

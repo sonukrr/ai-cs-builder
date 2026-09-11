@@ -22,6 +22,7 @@ import {
   RowIcon,
   SendIcon,
   SparkMark,
+  StopIcon,
   StackIcon,
   TabletIcon,
 } from "@/components/studio/icons";
@@ -227,6 +228,8 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
 
   const logRef = useRef<HTMLDivElement>(null);
   const kickedOff = useRef(false);
+  /** The in-flight agent turn, so Stop can abort the request and model call. */
+  const abortRef = useRef<AbortController | null>(null);
   /** The blueprint version the review has already been run for. */
   const fidelityRun = useRef(-1);
   /** Tells any open full-preview tab to reload after a change lands. */
@@ -343,6 +346,9 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
       setActivity([]);
       setDraft("");
 
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       // Show the user's turn immediately; the server persists its own copy.
       setData((current) =>
         current
@@ -365,6 +371,7 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
             message,
             selection: { pageId, sectionId: selectedSectionId || undefined },
           }),
+          signal: controller.signal,
         });
 
         if (!response.ok || !response.body) {
@@ -406,8 +413,15 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
         void changed;
         await load();
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : String(caught));
+        // A Stop is a deliberate cancellation, not an error — keep the partial
+        // reply the server already persisted and reload quietly.
+        if (caught instanceof DOMException && caught.name === "AbortError") {
+          await load();
+        } else {
+          setError(caught instanceof Error ? caught.message : String(caught));
+        }
       } finally {
+        abortRef.current = null;
         setStreaming("");
         setActivity([]);
         setBusy(false);
@@ -415,6 +429,11 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
     },
     [busy, load, pageId, projectId, selectedSectionId],
   );
+
+  /** Aborts the running turn; the server keeps whatever streamed so far. */
+  const stop = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
 
   // Starting from base kicks the conversation off so the admin lands in a
   // dialogue rather than an empty box.
@@ -748,8 +767,29 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
             placeholder={busy ? "Working…" : "Describe a change…"}
             disabled={busy}
           />
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
-            <button className="btn btn-primary btn-sm" onClick={() => send(draft)} disabled={busy || !draft.trim()}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginTop: 8,
+            }}
+          >
+            <button
+              className="btn btn-sm"
+              onClick={stop}
+              disabled={!busy}
+              title="Stop the assistant"
+              style={{ visibility: busy ? "visible" : "hidden" }}
+            >
+              Stop
+              <StopIcon size={13} />
+            </button>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => send(draft)}
+              disabled={busy || !draft.trim()}
+            >
               Send
               <SendIcon size={13} />
             </button>

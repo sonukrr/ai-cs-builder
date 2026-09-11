@@ -28,10 +28,21 @@ export const VIEWPORTS = {
 
 export type ViewportName = keyof typeof VIEWPORTS;
 
+/**
+ * Where the library's job data comes from.
+ *
+ * `sample` and `custom` are both answered by an interceptor inside the preview
+ * host — the same components, the same code path, different rows. `custom` is a
+ * dataset the agent researched for this company.
+ */
+export type DataSource = "sample" | "custom" | "live";
+
 export interface PreviewFrameProps {
   projectId: string;
   pageId: string;
   viewport: ViewportName;
+  /** Which rows the preview host serves. Part of the frame's cache key. */
+  source: DataSource;
   /** Where the Angular preview host is served from. */
   previewOrigin: string;
   selectedSectionId?: string;
@@ -50,6 +61,7 @@ export function PreviewFrame({
   projectId,
   pageId,
   viewport,
+  source,
   previewOrigin,
   selectedSectionId,
   onSelect,

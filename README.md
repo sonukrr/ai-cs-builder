@@ -68,7 +68,8 @@ aspirational — the agent cannot name a component that is not in the file.
 ```
 Figma MCP / REST / demo ─┐
                          ├─→ semantic analysis ─→ Site Plan ─(admin approves)─┐
-Base site via GitHub ────┘                                                    │
+Base site via GitHub ────┤                                                    │
+A URL, read in Chrome ───┘                                                    │
                                                                               ▼
                           conversational edits ──→ structured operations ──→ Site Blueprint
                                                         │                     │
@@ -93,6 +94,7 @@ hard ceiling on what a single edit can do.
 |---|---|
 | Blueprint schema, operations, validation | [`src/lib/blueprint/`](src/lib/blueprint/) |
 | The site every base project starts as | [`src/lib/blueprint/default-site.ts`](src/lib/blueprint/default-site.ts) |
+| Reading a live page for replication | [`src/lib/providers/web/`](src/lib/providers/web/), [`src/lib/agent/web-tools.ts`](src/lib/agent/web-tools.ts) |
 | Generated component registry | [`src/lib/registry/`](src/lib/registry/) |
 | Figma backends and the band summarizer | [`src/lib/providers/figma/`](src/lib/providers/figma/) |
 | Base site (GitHub) with write guard rails | [`src/lib/providers/github/`](src/lib/providers/github/) |
@@ -409,6 +411,55 @@ read unguarded (omitting it throws on every change-detection pass), `facets` is
 keyed by *display* name and mapped back through `facetsMapping`, and `skillSet`
 and `locAgg` are comma-separated **strings** while the neighbouring `*List`
 fields are real arrays.
+
+---
+
+## Rebuilding a page from its URL
+
+The third entry point on the start screen: an administrator pastes the address
+of a careers page they already have, and the agent rebuilds it.
+
+It exists because the obvious approaches do not work. Fetching that page's HTML
+returns an `<app-root>` and three tracking pixels — a careers site is an
+application, so its bands, its words and its photographs only exist after
+JavaScript has run. So
+[`captureWebPage`](src/lib/providers/web/capture.ts) renders the page in the
+Chrome the fidelity review already drives, scrolls it to trigger lazy loading,
+and reads the live DOM.
+
+What it extracts is deliberately the same shape a Figma import produces, because
+the agent already knows how to turn that into a faithful replica:
+
+| Tool | Answers |
+|---|---|
+| `import_web_page` | what the page is made of, band by band — and **downloads every image into the project** |
+| `render_web_band` | what one band *looks* like; geometry says 1440×359, only the picture says "dark hero" |
+| `describe_web_band` | its box, copy, headings, and the asset URLs to reuse |
+| `get_web_band_css` | resolved layout, type, colour and shadow — **plus transitions, animations and the `@keyframes` they use** |
+
+Images are copied, never linked. A blueprint pointing at the original site's URLs
+would break when that site moved a file, and would make the published site
+depend on somebody else's server; both emitters already copy project assets into
+the generated repository, so copying here is also what makes a replica survive
+publishing.
+
+Two limits are reported rather than hidden: a stylesheet served from another
+origin cannot be read at all (the browser forbids it), so an animation defined
+only there is named without its keyframes; and a page that renders only after an
+interaction will come back with no bands.
+
+**Whose page.** The rule that the agent summarises another company's *patterns*
+and never reproduces their markup or imagery still stands — this is for the
+administrator's own site, the one they are migrating. The URL always comes from
+them, and the capture is stored on the project so what was copied, and from
+where, is auditable afterwards.
+
+**One bug this found in the preview host.** Replica markup is injected as a
+string, so nothing ever rebased the `/api/projects/…/assets/…` URLs inside it —
+inside the preview iframe they resolved against the preview host, which serves
+no such route. Measured on a real replica: 7 images, 7 broken. The rebase now
+happens for a replica's markup and its stylesheet, and the same import came back
+7 images, 0 broken. It affected replicas built from Figma imports too.
 
 ---
 
@@ -774,9 +825,10 @@ it had. The model's contribution is the prose summary, stored as prose.
 The same manifest goes into the system prompt, so the agent knows which of its
 own tools will work and can say what is missing instead of failing opaquely.
 
-`IMPORT_FIGMA` · `START_FROM_BASE` · `DESIGN_FIDELITY` · `MODIFY_SITE` ·
-`ADD_FUNCTIONALITY` · `MANAGE_IMAGERY` · `RESEARCH_OR_INSPIRATION` ·
-`VERSION_AND_PREVIEW` · `REQUEST_PUBLISH` · `DEPLOY_SITE`
+`IMPORT_FIGMA` · `START_FROM_BASE` · `REPLICATE_WEB_PAGE` · `DESIGN_FIDELITY` ·
+`MODIFY_SITE` · `ADD_FUNCTIONALITY` · `MANAGE_IMAGERY` ·
+`RESEARCH_OR_INSPIRATION` · `VERSION_AND_PREVIEW` · `REQUEST_PUBLISH` ·
+`DEPLOY_SITE`
 
 ### Research
 

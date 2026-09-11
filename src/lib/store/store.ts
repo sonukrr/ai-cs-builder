@@ -11,6 +11,7 @@ import type {
 } from "@/lib/blueprint/schema";
 import type { SitePlan } from "@/lib/agent/analyze";
 import type { DesignDocument, DesignNode } from "@/lib/providers/figma/types";
+import type { WebPageCapture } from "@/lib/providers/web/types";
 
 /**
  * File-backed persistence.
@@ -255,6 +256,21 @@ export const store = {
 
   async getDesign(projectId: string): Promise<DesignDocument | null> {
     return readJson<DesignDocument>(path.join(ROOT, projectId, "design.json"));
+  },
+
+  /**
+   * The last page imported from the web for this project.
+   *
+   * Kept for the same reason the Figma document is: a replica is authored from
+   * it across several turns, and "what was copied, and from where" should be
+   * answerable afterwards by looking at the project rather than the transcript.
+   */
+  async saveWebCapture(projectId: string, capture: WebPageCapture): Promise<void> {
+    await writeJson(path.join(await projectDir(projectId), "web-capture.json"), capture);
+  },
+
+  async getWebCapture(projectId: string): Promise<WebPageCapture | null> {
+    return readJson<WebPageCapture>(path.join(ROOT, projectId, "web-capture.json"));
   },
 
   /**

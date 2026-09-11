@@ -2075,10 +2075,19 @@ select {
 
 /* ---- entry cards -------------------------------------------------------- */
 
+/* Three entry points now, so the track count is derived rather than fixed:
+   three across on a wide screen, two when that would squeeze them under ~320px
+   each, one on a phone (the media query below still pins that). */
 .l-entry-cards {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(320px, 1fr));
   gap: 22px;
+}
+/* The third card sits alone on a second row, centred at one column's width. */
+.l-entry--url {
+  grid-column: 1 / -1;
+  width: calc(50% - 11px);
+  margin-inline: auto;
 }
 .l-entry {
   position: relative;
@@ -2423,6 +2432,9 @@ select {
   }
   .l-entry-cards {
     grid-template-columns: 1fr;
+  }
+  .l-entry--url {
+    width: auto;
   }
   .l-hero {
     padding: 64px 0 24px;

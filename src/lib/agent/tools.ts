@@ -21,6 +21,7 @@ import { buildImageTools } from "./image-tools";
 import { buildDatasetTools } from "./dataset-tools";
 import { buildFidelityTools } from "./fidelity-tools";
 import { buildDesignTools } from "./design-tools";
+import { buildWebTools } from "./web-tools";
 import type { Blueprint, Section } from "@/lib/blueprint/schema";
 
 /**
@@ -841,5 +842,6 @@ export function buildTools(context: ToolContext) {
     ...buildDatasetTools({ projectId, onActivity }),
     ...buildFidelityTools({ projectId, onActivity }),
     ...buildDesignTools({ projectId, onActivity }),
+    ...buildWebTools({ projectId, onActivity }),
   ];
 }

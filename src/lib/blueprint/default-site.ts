@@ -359,6 +359,59 @@ export function defaultCareerSite(input: DefaultSiteInput): Blueprint {
   } as Blueprint;
 }
 
+/**
+ * A site with nothing in it.
+ *
+ * For a project that is going to be *scraped* into existence: the agent reads a
+ * page and builds what it finds, so anything seeded here would be a layout
+ * nobody asked for that has to be deleted before the real one can be built —
+ * and, worse, a first preview showing a site that is not theirs.
+ *
+ * It is still a real blueprint rather than nothing at all, because that is what
+ * keeps every edit on one path: `apply_operations` validates against an
+ * existing site, so a project with no blueprint would need a second way in.
+ * The home page is empty, and the preview says so.
+ */
+export function emptyCareerSite(input: DefaultSiteInput): Blueprint {
+  const company = input.companyName.trim() || "Your company";
+
+  return {
+    projectId: input.projectId,
+    version: 1,
+    company: {
+      name: company,
+      tagline: input.tagline?.trim() ?? "",
+      brand: {
+        logo: "",
+        logoAlt: company,
+        favicon: "",
+        tokens: {
+          colors: { ...COLORS },
+          fonts: { heading: "Inter", body: "Inter" },
+          typeScale: [48, 32, 24, 18, 16, 14],
+          radius: 8,
+          spacing: 8,
+          buttonStyle: "solid",
+        },
+      },
+    },
+    nav: [],
+    pages: [
+      {
+        id: "home",
+        name: "Home",
+        path: "/",
+        sections: [],
+        seo: { title: company, description: "" },
+      },
+    ],
+    unsupportedRequests: [],
+  } as Blueprint;
+}
+
+/** One line for the version history, so the first version explains itself. */
+export const EMPTY_SITE_SUMMARY = "Created an empty site, ready for the imported page";
+
 /** One line for the version history, so the first version explains itself. */
 export const DEFAULT_SITE_SUMMARY =
   "Created the standard career site: home with a hero and testimonials, a jobs page with filters and search, and a job details page";

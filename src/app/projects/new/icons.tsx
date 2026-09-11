@@ -59,6 +59,14 @@ export const ImportIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const GlobeIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M3 12h18" />
+    <path d="M12 3a15 15 0 010 18a15 15 0 010-18z" />
+  </Icon>
+);
+
 export const LayersIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M12 3l9 5-9 5-9-5 9-5z" />
@@ -154,6 +162,7 @@ export const ShieldIcon = (p: IconProps) => (
 
 /** Capability id → icon, so the grid stays keyed to the real product data. */
 export const CAPABILITY_ICONS: Record<string, (p: IconProps) => React.ReactElement> = {
+  REPLICATE_WEB_PAGE: GlobeIcon,
   IMPORT_FIGMA: ImportIcon,
   START_FROM_BASE: LayersIcon,
   DESIGN_FIDELITY: CompareIcon,

@@ -4,23 +4,33 @@ import { useRouter } from "next/navigation";
 import { readJson } from "@/lib/client/json";
 import { useState } from "react";
 import type { CapabilityState } from "@/lib/agent/capabilities";
-import { ImportIcon, LayersIcon, ArrowRightIcon } from "./icons";
+import { ImportIcon, LayersIcon, ArrowRightIcon, GlobeIcon } from "./icons";
 
 interface Props {
   figmaState: CapabilityState;
   figmaDetail: string;
   baseState: CapabilityState;
   baseDetail: string;
+  webState: CapabilityState;
+  webDetail: string;
 }
 
-/** The two entry points from 08-admin-ui.md, each creating a project then routing on. */
-export function StartPoints({ figmaState, figmaDetail, baseState, baseDetail }: Props) {
+/** The entry points from 08-admin-ui.md, each creating a project then routing on. */
+export function StartPoints({
+  figmaState,
+  figmaDetail,
+  baseState,
+  baseDetail,
+  webState,
+  webDetail,
+}: Props) {
   const router = useRouter();
   const [figmaUrl, setFigmaUrl] = useState("");
-  const [busy, setBusy] = useState<"figma" | "base" | null>(null);
+  const [siteUrl, setSiteUrl] = useState("");
+  const [busy, setBusy] = useState<"figma" | "base" | "url" | null>(null);
   const [error, setError] = useState("");
 
-  async function createProject(entryPoint: "figma" | "base", sourceRef: string) {
+  async function createProject(entryPoint: "figma" | "base" | "url", sourceRef: string) {
     const response = await fetch("/api/projects", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -41,6 +51,31 @@ export function StartPoints({ figmaState, figmaDetail, baseState, baseDetail }: 
       // so it runs on the plan screen where there is somewhere to show progress.
       const params = figmaUrl ? `?figma=${encodeURIComponent(figmaUrl)}` : "?figma=demo";
       router.push(`/plan/${project.id}${params}`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+      setBusy(null);
+    }
+  }
+
+  /**
+   * Rebuilding a page the administrator already has.
+   *
+   * Straight to the studio rather than via the plan screen: there is no plan to
+   * approve, because the page *is* the plan. The reading and the rebuilding
+   * both happen in the conversation, where each band can be shown as it lands.
+   */
+  async function startFromUrl() {
+    const url = siteUrl.trim();
+    if (!url) {
+      setError("Give the address of the careers page you want rebuilt.");
+      return;
+    }
+
+    setBusy("url");
+    setError("");
+    try {
+      const project = await createProject("url", /^https?:\/\//i.test(url) ? url : `https://${url}`);
+      router.push(`/studio/${project.id}?start=url`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
       setBusy(null);
@@ -117,6 +152,41 @@ export function StartPoints({ figmaState, figmaDetail, baseState, baseDetail }: 
               : figmaState === "demo" && !figmaUrl
                 ? "Import the demo design"
                 : "Import design"}
+            <ArrowRightIcon size={16} />
+          </button>
+        </section>
+
+        <section className="l-entry l-entry--url">
+          <div className="l-entry-top">
+            <span className="l-entry-icon">
+              <GlobeIcon size={22} />
+            </span>
+            {webState === "needs-config" && <span className="l-pill l-pill--setup">Setup</span>}
+          </div>
+          <h3 className="l-entry-title">Rebuild your existing careers site</h3>
+          <p className="l-entry-desc">
+            Give the agent the address of a careers page you already have. It opens the page in a
+            real browser, reads it band by band, copies every image into your project, and rebuilds
+            it — structure, layout, copy, styling and animations — with the approved components
+            wherever something is functional.
+          </p>
+          <input
+            className="l-input"
+            placeholder="https://careers.yourcompany.com"
+            value={siteUrl}
+            onChange={(event) => setSiteUrl(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void startFromUrl();
+            }}
+            spellCheck={false}
+          />
+          <p className="l-entry-note">{webDetail}</p>
+          <button
+            className="l-btn l-btn--primary l-entry-cta"
+            onClick={startFromUrl}
+            disabled={busy !== null || webState === "needs-config"}
+          >
+            {busy === "url" ? "Reading the page…" : "Rebuild from URL"}
             <ArrowRightIcon size={16} />
           </button>
         </section>

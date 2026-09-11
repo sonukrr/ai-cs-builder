@@ -321,8 +321,11 @@ export const Project = z.object({
   name: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
-  entryPoint: z.enum(["figma", "base"]),
-  /** Figma file key or base repo URL, depending on entryPoint. */
+  entryPoint: z.enum(["figma", "base", "url"]),
+  /**
+   * Where this project came from: a Figma file key, the base repo, or — for
+   * `url` — the page the administrator asked to have rebuilt.
+   */
   sourceRef: z.string().default(""),
   /**
    * `reviewing` is the design-fidelity gate: the site is built, but a Figma

@@ -211,7 +211,7 @@ const SUGGESTIONS = [
   "Add a hiring process section",
 ];
 
-export function Studio({ projectId, startFromBase }: { projectId: string; startFromBase: boolean }) {
+export function Studio({ projectId, opening }: { projectId: string; opening: string }) {
   const [data, setData] = useState<ProjectData | null>(null);
   const [pageId, setPageId] = useState<string>("");
   const [selectedSectionId, setSelectedSectionId] = useState<string>("");
@@ -483,15 +483,19 @@ export function Studio({ projectId, startFromBase }: { projectId: string; startF
     }
   }, [busy, activeChip]);
 
-  // Starting from base kicks the conversation off so the admin lands in a
-  // dialogue rather than an empty box.
+  /*
+    The opening turn, so an administrator who has just chosen a starting point
+    lands in a dialogue rather than an empty box.
+
+    Guarded on the transcript being empty, not on the blueprint being absent:
+    every base and URL project now opens with the standard site already in
+    place, so the old "no blueprint yet" test would never fire again.
+  */
   useEffect(() => {
-    if (!startFromBase || kickedOff.current || !data || data.blueprint || data.conversation.length > 0) return;
+    if (!opening || kickedOff.current || !data || data.conversation.length > 0) return;
     kickedOff.current = true;
-    void send(
-      "I want to start from the approved base career site. Read it, then ask me what you need to know about my company to customise it.",
-    );
-  }, [data, send, startFromBase]);
+    void send(opening);
+  }, [data, send, opening]);
 
   async function revert(version: number) {
     await fetch(`/api/projects/${projectId}/versions`, {

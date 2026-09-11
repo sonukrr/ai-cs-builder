@@ -93,25 +93,49 @@ export async function readJson<T>(response: Response, what: string): Promise<Jso
   return { ok: true, status: response.status, data: parsed as T, error: "" };
 }
 
-/** `fetch` and `readJson` together, with a network failure reported the same way. */
+/**
+ * `fetch` and `readJson` together, with a network failure reported the same way.
+ *
+ * A GET is retried once when the answer is something that cannot be a real
+ * answer — a dropped connection, or a 5xx with an empty body. Those are the
+ * signature of a server that went away mid-request rather than a request that
+ * was refused: a dev server reloading, a worker restarting, a proxy giving up.
+ * Retrying a read is safe, and it turns a blip that used to end an agent turn
+ * with "the server returned 500 with an empty response" into a pause nobody
+ * notices. Anything with a body is reported as-is, first time: a 404 is an
+ * answer, and repeating it would only be slower.
+ */
 export async function fetchJson<T>(
   url: string,
   what: string,
   init?: RequestInit,
 ): Promise<JsonResult<T>> {
-  let response: Response;
-  try {
-    response = await fetch(url, init);
-  } catch (error) {
-    return {
-      ok: false,
-      status: 0,
-      data: null,
-      error: `Could not reach the studio for ${what}: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    };
-  }
+  const attempt = async (): Promise<JsonResult<T>> => {
+    let response: Response;
+    try {
+      response = await fetch(url, init);
+    } catch (error) {
+      return {
+        ok: false,
+        status: 0,
+        data: null,
+        error: `Could not reach the studio for ${what}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      };
+    }
+    return readJson<T>(response, what);
+  };
 
-  return readJson<T>(response, what);
+  const first = await attempt();
+  if (first.ok) return first;
+
+  // Only idempotent requests, and only the failures that look transient.
+  const method = (init?.method ?? "GET").toUpperCase();
+  const worthRetrying = first.status === 0 || (first.status >= 500 && first.data === null);
+  if (method !== "GET" || !worthRetrying) return first;
+
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  const second = await attempt();
+  return second.ok ? second : first;
 }

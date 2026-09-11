@@ -190,6 +190,20 @@ export function capabilities(): Capability[] {
             : ["get_job_data", "set_job_data"],
     },
     {
+      id: "REPLICATE_WEB_PAGE",
+      name: "Rebuild a page from its URL",
+      description:
+        "Opens a page the administrator supplies in a real browser, reads its bands, copy, colours, fonts, styling and animations, downloads every image into the project, and rebuilds it band by band — approved components for anything functional, hand-authored replicas for the rest.",
+      // The browser is the whole capability: these pages are applications, and
+      // fetching their HTML returns an empty shell.
+      state: capture.ready ? "ready" : "needs-config",
+      detail: capture.ready
+        ? "Pages are rendered in the Chrome on this machine, so JavaScript-built pages are read as a visitor sees them. Images are copied into the project rather than linked, so the published site does not depend on the original."
+        : `No browser to read pages with at ${process.env.CHROME_PATH ?? "/usr/bin/google-chrome"} (set CHROME_PATH). A careers page is an application, so without a browser there is nothing to read — its HTML is an empty shell.`,
+      requires: ["CHROME_PATH (Google Chrome, already required by the fidelity review)"],
+      tools: ["import_web_page", "list_web_bands", "render_web_band", "describe_web_band", "get_web_band_css"],
+    },
+    {
       id: "VERSION_AND_PREVIEW",
       name: "Versions, undo and preview",
       description:

@@ -327,7 +327,30 @@ export class StaticSectionComponent implements OnChanges, OnDestroy {
    */
   private trustReplica(): SafeHtml | null {
     if (this.section?.type !== "custom-html") return null;
-    return this.sanitizer.bypassSecurityTrustHtml(this.value("html"));
+    return this.sanitizer.bypassSecurityTrustHtml(this.rebaseStudioUrls(this.value("html")));
+  }
+
+  /**
+   * Points a replica's own image URLs back at the studio.
+   *
+   * Uploads, imported design images and pictures pulled in from a live page are
+   * all stored as `/api/projects/<id>/assets/<file>` — studio-relative, so that
+   * the blueprint stays portable and the emitters can copy them into a
+   * published repository. Inside this iframe a relative path resolves against
+   * the *preview host*, which serves no such route, so every one of them 404s.
+   *
+   * `src()` already handles this for the sections rendered from content fields.
+   * A replica's markup never went through it: it is injected as a string, so
+   * nothing had a chance to look at the URLs inside it — which is why a
+   * hand-authored band came out with every picture missing while the band above
+   * it was fine. The same applies to its stylesheet, where the URLs sit inside
+   * `url(...)`.
+   */
+  private rebaseStudioUrls(text: string): string {
+    if (!text || !this.studioOrigin) return text;
+    // Only the leading slash form: an absolute URL is already pointing
+    // somewhere deliberate and must not be rewritten.
+    return text.replace(/(["'(=]\s*)\/api\//g, `$1${this.studioOrigin}/api/`);
   }
 
   /**
@@ -347,7 +370,7 @@ export class StaticSectionComponent implements OnChanges, OnDestroy {
   private applyScopedCss(): void {
     this.removeScopedCss();
     if (this.section?.type !== "custom-html") return;
-    const css = this.value("css");
+    const css = this.rebaseStudioUrls(this.value("css"));
     if (!css) return;
 
     const el: HTMLStyleElement = this.renderer.createElement("style");

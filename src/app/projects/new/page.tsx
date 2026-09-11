@@ -33,6 +33,7 @@ export default function NewProject() {
   const caps = capabilities();
   const figma = caps.find((c) => c.id === "IMPORT_FIGMA")!;
   const base = caps.find((c) => c.id === "START_FROM_BASE")!;
+  const web = caps.find((c) => c.id === "REPLICATE_WEB_PAGE")!;
   const readyCount = caps.filter((c) => c.state === "ready").length;
   const approvedComponents = registry.components.filter((c) => c.status === "approved").length;
 
@@ -110,13 +111,13 @@ export default function NewProject() {
           </ul>
         </section>
 
-        {/* Two entry points */}
+        {/* The entry points */}
         <section className="l-section" id="start">
           <div className="l-section-head">
             <h2 className="l-section-title">Choose how you begin</h2>
             <p className="l-section-sub">
-              Two intentional starting points. Both converge on the same blueprint, then the agents
-              take it from there.
+              Three intentional starting points — a site you already have, the approved foundation,
+              or a design. All converge on the same blueprint, then the agents take it from there.
             </p>
           </div>
           <StartPoints
@@ -124,6 +125,8 @@ export default function NewProject() {
             figmaDetail={figma.detail}
             baseDetail={base.detail}
             baseState={base.state}
+            webState={web.state}
+            webDetail={web.detail}
           />
 
           {!hasApiKey() && (

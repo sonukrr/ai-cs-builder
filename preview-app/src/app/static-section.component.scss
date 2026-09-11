@@ -62,6 +62,34 @@ p {
 
 /* Sections ---------------------------------------------------------------- */
 
+/* Bootstrap is loaded globally because zm-careers-lib depends on it, and it
+   claims four of the class names below for itself. Specificity does not settle
+   it: these rules are more specific than Bootstrap's, but only for properties
+   they actually declare, so anything left unsaid is Bootstrap's to decide.
+
+   `.nav` was the one that showed: Bootstrap makes it `display: flex`, which
+   turned the header into a flex container whose inner wrapper shrink-wrapped
+   to its content and centred — a logo that would not sit on the left however
+   the header was written. `.row` would do the same to a process step, and
+   `.card` is Bootstrap's flex column. Said plainly here, once. */
+.nav {
+  display: block;
+}
+
+.row {
+  display: block;
+  margin: 0;
+}
+
+.row > * {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.card {
+  display: block;
+}
+
 .nav {
   background: #fff;
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);

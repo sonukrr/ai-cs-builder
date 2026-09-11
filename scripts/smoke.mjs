@@ -66,6 +66,7 @@ const { emitAngularSite, usedComponents } = await import("../src/lib/emit/angula
 const { emitReactSite, collectStudioAssets } = await import("../src/lib/emit/react/index.ts");
 const { refusedDestination, isGeneratedPath } = await import("../src/lib/providers/github/deploy.ts");
 const { emitAngularApp } = await import("../src/lib/emit/angular-app/index.ts");
+const { defaultCareerSite } = await import("../src/lib/blueprint/default-site.ts");
 const { recommendedTarget } = await import("../src/lib/agent/deploy-tools.ts");
 const { registry, catalog, searchRegistry } = await import("../src/lib/registry/index.ts");
 
@@ -332,6 +333,32 @@ const interceptor = ng.files.find((f) => f.path === "src/app/careers-tenant.inte
 check("it rewrites domain and companyId", interceptor.includes('body.set("domain"') && interceptor.includes('body.set("companyId"'));
 check("the pinning is reported as a note", ng.notes.some((n) => n.includes("pinned to")), ng.notes.join(" | "));
 check("no studio-hosted image URLs survive", !ng.files.some((f) => f.encoding === "utf-8" && f.content.includes("/api/projects/")));
+
+console.log("\nThe default career site");
+const startSite = defaultCareerSite({ projectId: "smoke", companyName: "Northwind Labs" });
+check("it validates with nothing to fix", isBuildable(validateBlueprint(startSite)), validateBlueprint(startSite).map((i) => i.path + ": " + i.message).join("; "));
+check("three routable pages", startSite.pages.map((p) => p.path).join(" ") === "/ /jobs /jobs/:jobUrl", startSite.pages.map((p) => p.path).join(" "));
+// The parameter name is the library's, not a preference: lib-job-apply reads
+// paramMap.get('jobUrl'), so renaming it breaks the apply flow silently.
+check("the detail route uses the library's parameter name", startSite.pages[2].path.endsWith("/:jobUrl"));
+const homeSections = startSite.pages[0].sections.map((s) => s.type);
+check("home is header, hero, testimonials, footer", homeSections.join(",") === "nav,hero,employee-stories,footer", homeSections.join(","));
+check("every page carries the header and the footer", startSite.pages.every((p) => p.sections[0].type === "nav" && p.sections.at(-1).type === "footer"));
+check("navigation points at real pages", startSite.nav.every((item) => startSite.pages.some((p) => p.id === item.pageId)));
+check("the hero CTA points at the jobs page", startSite.pages[0].sections[1].content.ctaPageId === "jobs");
+const jobsRow = startSite.pages[1].sections.find((s) => s.source === "layout");
+check("filters sit beside the results in a row", jobsRow?.props.direction === "row" && jobsRow.children[0].type === "job-filters", JSON.stringify(jobsRow?.props.direction));
+check("the facet column is a sidebar, not a half", jobsRow?.children[0].layout?.basis === "300px");
+check("search, filters, listing and detail are all approved components", ["job-search", "job-filters", "job-listing", "job-details"].every((type) => JSON.stringify(startSite).includes(`"type":"${type}"`)));
+
+// A job card emits (jobURL) and navigates nowhere on its own, so the emitted
+// page has to bind it — without this, clicking a job does nothing at all.
+const startNg = emitAngularApp(startSite, { studioProjectId: "smoke" });
+const startJobsTemplate = startNg.files.find((f) => f.path === "src/app/pages/jobs/jobs.component.html").content;
+const startJobsComponent = startNg.files.find((f) => f.path === "src/app/pages/jobs/jobs.component.ts").content;
+check("the job list's output is bound", startJobsTemplate.includes('(jobURL)="openJob($event)"'));
+check("the page navigates to the detail route", startJobsComponent.includes("this.router.navigate(['jobs', slug]"), startJobsComponent.includes("openJob") ? "openJob present" : "no handler");
+check("the id is kept as a query parameter", startJobsComponent.includes("queryParams"));
 
 console.log("\nDeploy guard rails");
 process.env.BASE_SITE_REPO = "acme/career-site-base";

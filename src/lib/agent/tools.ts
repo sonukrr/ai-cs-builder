@@ -16,6 +16,7 @@ import {
 import { runDeployAgent } from "./deploy-agent";
 import { deployTargetStatus } from "@/lib/providers/github/deploy-target";
 import { vercelStatus } from "@/lib/providers/vercel";
+import { defaultCareerSite } from "@/lib/blueprint/default-site";
 import { buildImageTools } from "./image-tools";
 import { buildDatasetTools } from "./dataset-tools";
 import { buildFidelityTools } from "./fidelity-tools";
@@ -504,7 +505,7 @@ export function buildTools(context: ToolContext) {
   const startFromBase = betaZodTool({
     name: "start_from_base",
     description:
-      "Create this project's first blueprint from the approved base site, customised for the company. Call read_base_site first, then pass the pages and sections you propose.",
+      "Create this project's first blueprint from the approved base site. It starts as the standard career site — header, hero, testimonials, a jobs page with filters and search, and a job details page — so pass operations that *customise* that for this company rather than operations that rebuild it. Call read_base_site first.",
     inputSchema: z.object({
       companyName: z.string(),
       tagline: z.string().optional(),
@@ -521,33 +522,17 @@ export function buildTools(context: ToolContext) {
         return "This project already has a blueprint. Use apply_operations to change it instead.";
       }
 
-      // A minimal valid blueprint that the operations then build out. Starting
-      // from a real blueprint rather than a null one means every operation goes
-      // through exactly the same validated path as a later conversational edit.
-      const seed: Blueprint = {
-        projectId,
-        version: 1,
-        company: {
-          name: companyName,
-          tagline: tagline ?? "",
-          brand: {
-            logo: "",
-            logoAlt: companyName,
-            favicon: "",
-            tokens: {
-              colors: { primary: "#111111", secondary: "#666666", background: "#ffffff", text: "#111111" },
-              fonts: { heading: "Inter", body: "Inter" },
-              typeScale: [48, 32, 24, 18, 16, 14],
-              radius: 8,
-              spacing: 8,
-              buttonStyle: "solid",
-            },
-          },
-        },
-        nav: [],
-        pages: [{ id: "home", name: "Home", path: "/", sections: [], seo: { title: companyName, description: "" } }],
-        unsupportedRequests: [],
-      };
+      /*
+        The standard career site, which the operations then customise.
+
+        Seeding from a real site rather than an empty one means the same layout
+        every time — header, hero, testimonials, a jobs page with filters and
+        search, and a job details page on the route the library needs — and it
+        means every operation goes through exactly the same validated path as a
+        later conversational edit. Adjusting a site is also a much smaller and
+        more reliable job for a model than assembling one from nothing.
+      */
+      const seed: Blueprint = defaultCareerSite({ projectId, companyName, tagline });
 
       let raw: unknown;
       try {
